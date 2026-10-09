@@ -1,5 +1,5 @@
 export const websiteSections = {
-  consultancy: ['consultations', 'events', 'orientation', 'favorites'],
+  consultancy: ['consultations', 'consultationSlots', 'events', 'orientation', 'favorites'],
   students: ['students', 'parents', 'agentStudents'],
   admissions: ['applications', 'documents', 'visaCases'],
   finance: ['financials', 'paymentProofs', 'payouts', 'walletEntries'],

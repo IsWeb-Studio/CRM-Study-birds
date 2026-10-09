@@ -7,6 +7,7 @@ import { useAuth } from '../auth.jsx';
 import { tr } from '../i18n.js';
 import { can } from '../permissions.js';
 import { UnifiedSectionContext, useUnifiedRecords } from '../components/UnifiedSectionContext.jsx';
+import {websiteApplicationStatuses} from '../websiteApplicationStatuses.js';
 import SourceRecordActions from '../components/SourceRecordActions.jsx';
 
 const tone = status => (status.includes('Acceptance') ? 'green' : status.includes('Rejected') ? 'red' : status.includes('Submitted') || status.includes('Review') ? 'blue' : 'amber');
@@ -181,7 +182,7 @@ export default function Admissions() {
     return base;
   }, [apps, query, statusFilter]);
 
-  const admissionsEmployees = settings?.employees?.filter(employee => employee.department === 'Admissions') || [];
+  const admissionsEmployees = settings?.employees?.filter(employee => employee.department === 'Admissions' || employee.websiteSource?.permissions?.includes('applications')) || [];
   const currentDocuments = selected?.currentDocuments || [];
   const archivedDocuments = (selected?.documents || []).filter(doc => doc.current === false);
   const effectiveDocumentTypes = useMemo(
@@ -195,7 +196,7 @@ export default function Admissions() {
     [selected?.effectiveDocumentTypes, settings?.documentTypes]
   );
   const effectiveFollowUpStages = selected?.effectiveFollowUpStages || [];
-  const applicationStatuses = settings?.applicationStatuses || [];
+  const applicationStatuses = selected?.websiteSource?.id ? [...new Set([...Object.values(websiteApplicationStatuses),selected.status])] : settings?.applicationStatuses || [];
   const catalogLinks = settings?.catalogLinks || {};
   const universityOptions = useMemo(
     () => collectUniqueOptions(catalogLinks.universities, settings?.availableUniversities),
@@ -327,6 +328,7 @@ export default function Admissions() {
       country: detailForm.country,
       status: detailForm.status,
       assignedTo: detailForm.assignedTo,
+      ...(selected?.websiteSource?.id?{websiteVersion:selected.websiteSource.version || 0}:{}),
       applicationRefNo: detailForm.applicationRefNo,
       portalUrl: detailForm.portalUrl,
       portalUsername: detailForm.portalUsername,
@@ -556,7 +558,7 @@ export default function Admissions() {
               <div className="detail-grid">
                 <div><span>رقم الطلب</span><strong>{selected.applicationRefNo || '—'}</strong></div>
                 <div><span>الفصل الدراسي</span><strong>{selected.intake || '—'}</strong></div>
-                <div><span>المسؤول المختص</span><strong>{settings?.employees.find(employee => employee.id === selected.assignedTo)?.name || 'غير مسند'}</strong></div>
+                <div><span>المسؤول المختص</span><strong>{settings?.employees.find(employee => employee.id === selected.assignedTo)?.name || selected.websiteSource?.advisorName || 'غير مسند'}</strong></div>
                 <div><span>رسوم التقديم</span><strong>{selected.applicationFeeStatus === 'Paid' ? 'مدفوع' : 'غير مدفوع'}</strong></div>
               </div>
 

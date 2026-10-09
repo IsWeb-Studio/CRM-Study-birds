@@ -1,4 +1,5 @@
 import {createHash,randomUUID} from 'node:crypto';
+import {websiteApplicationStatuses} from './applicationStatuses.js';
 const fail = (message,status=400) => Object.assign(new Error(message),{status});
 const staff = {
   consultant:{employeeRole:'educational_consultant',permissions:['students','applications','consultations']},
@@ -10,9 +11,9 @@ const staff = {
   admin:{employeeRole:'operations',permissions:[]}
 };
 export function websiteApplicationStatus(status) {
-  const map={'Preparing Documents':'additional-documents-required','Submitted to University':'submitted','Under Review':'under-review','Conditional Acceptance':'conditional-admission','Final Acceptance':'final-admission','Rejected':'rejected'};
-  if (!map[status]) throw fail('حالة القبول غير مرتبطة بحالة في الموقع.');
-  return map[status];
+  const code=Object.entries(websiteApplicationStatuses).find(([,label])=>label===status)?.[0];
+  if(!code)throw fail('حالة القبول غير مدعومة.');
+  return code;
 }
 export function staffAccount(payload) {
   const mapped = staff[payload.role]; if (!mapped) throw fail('دور CRM غير مدعوم في حساب الموقع.');

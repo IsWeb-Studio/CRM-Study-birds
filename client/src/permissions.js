@@ -55,6 +55,10 @@ export const moduleLabels = {
 };
 
 export const actionPermissions = {
+  manageConsultations: ['admin', 'management', 'consultant'],
+  manageServices: ['admin', 'management', 'admissions', 'reception'],
+  manageSupport: ['admin', 'management', 'consultant', 'admissions', 'reception'],
+  deleteApplication: ['admin', 'management'],
   manageWebsite: ['admin', 'management'],
   createLead: ['admin', 'management', 'consultant', 'reception'],
   editLead: ['admin', 'management', 'consultant', 'reception'],
@@ -82,6 +86,10 @@ export const actionPermissions = {
 };
 
 export const actionLabels = {
+  manageConsultations: 'إدارة حجوزات ومواعيد الاستشارات',
+  manageServices: 'إدارة الخدمات والسكن',
+  manageSupport: 'إدارة الدعم والتصعيد',
+  deleteApplication: 'حذف طلب قبول',
   manageWebsite: 'إدارة بيانات الموقع المرتبط',
   createLead: 'إضافة عميل محتمل',
   editLead: 'تعديل العملاء المحتملين',

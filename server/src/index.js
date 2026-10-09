@@ -1,6 +1,8 @@
+import {mountFinancialReconciliation} from './integrations/website/financialReconciliation.js';
 import {mountInvoiceWorkspace} from './integrations/website/invoiceWorkspace.js';
 import {mountStudentWorkspace} from './integrations/website/studentWorkspace.js';
 import 'dotenv/config';
+import {applicationEdit} from './integrations/website/applicationEdit.js';
 import { createWebsiteClient, mountWebsiteRoutes, websiteConfig } from './integrations/website/website.service.js';
 import { staffAccount, provisionAccount, assertWebsiteWrites, archiveLegacyCatalog, replaceLegacyCatalog, mountAccountBridge,websiteApplicationStatus,accountIdentity } from './integrations/website/accountBridge.js';
 import { invoicePaidAmount } from './integrations/website/nativeFinance.js';
@@ -3342,7 +3344,7 @@ if (process.env.STUDY_BIRDS_ENABLED === 'true') {
   }
 }
 
-app.get('/api/health', (_req, res) => res.json({ status: 'ok', time: now(), websiteIntegration: 6, buildCommit: process.env.RENDER_GIT_COMMIT || process.env.VERCEL_GIT_COMMIT_SHA || null }));
+app.get('/api/health', (_req, res) => res.json({ status: 'ok', time: now(), websiteIntegration: 7, buildCommit: process.env.RENDER_GIT_COMMIT || process.env.VERCEL_GIT_COMMIT_SHA || null }));
 
 app.post('/api/auth/login', async (req, res) => {
   const { email, password } = req.body || {};
@@ -3577,6 +3579,7 @@ mountWebsiteRoutes(app, { allowModule, allowAction, client: websiteClient, readD
 mountAccountBridge(app, {client:websiteClient,allowAction,allowModule,readDb,mutateDb});
 mountStudentWorkspace(app,{allowAction,allowModule,readDb,mutateDb});
 mountInvoiceWorkspace(app,{allowAction,allowModule,mutateDb});
+mountFinancialReconciliation(app,{allowAction,allowModule,readDb,mutateDb,client:websiteClient});
 const websiteWorkflow = mountWebsiteWorkflow(app, { allowModule, allowRoles, client: websiteClient, readDb, mutateDb });
 
 app.get('/api/me', async (req, res) => {
@@ -4167,7 +4170,7 @@ app.get('/api/settings', async (_req, res) => {
         actions: Array.isArray(user.permissions?.actions) ? user.permissions.actions : []
       }
     })),
-    employees: hrEmployees,
+    employees: [...hrEmployees,...getScopedItems(db.employees,companyId).filter(employee=>employee.websiteSource?.nativeFeatures && !hrEmployees.some(row=>row.id===employee.id))],
     company: db.companies.find(item => item.id === companyId) || null
   });
 });
@@ -5279,7 +5282,7 @@ app.patch('/api/applications/:id', allowAction('updateApplicationStatus'), async
     const nextOfferType = req.body.offerType ?? application.offerType ?? '';
     const nextOfferConditions = req.body.offerConditions ?? application.offerConditions ?? '';
     const nextRejectionReason = req.body.rejectionReason ?? application.rejectionReason ?? '';
-    if (['Conditional Acceptance', 'Final Acceptance', 'Rejected'].includes(nextStatus) && !nextOfferType) {
+    if ((nextStatus !== application.status || req.body.offerType !== undefined && req.body.offerType !== (application.offerType || '')) && ['Conditional Acceptance', 'Final Acceptance', 'Rejected'].includes(nextStatus) && !nextOfferType) {
       throw Object.assign(new Error('نوع القبول أو الرفض مطلوب قبل حفظ الحالة'), { status: 400 });
     }
     if (nextOfferType === 'Conditional Offer' && !String(nextOfferConditions || '').trim()) {
@@ -5296,7 +5299,8 @@ app.patch('/api/applications/:id', allowAction('updateApplicationStatus'), async
       const matches=catalog.programs.filter(row=>sameProgram && application.websiteSource.programId ? row.id === application.websiteSource.programId : row.university === university && (row.department === program || row.title === program));
       if(matches.length !== 1) throw Object.assign(new Error('اختر البرنامج بدرجته ولغته لتحديث الطلب.'),{status:409});
       const crmDetails=Object.fromEntries(['applicationRefNo','portalUrl','portalUsername','offerType','offerConditions','rejectionReason'].filter(key=>req.body[key] !== undefined).map(key=>[key,req.body[key]]));
-      await websiteClient.request(`/crm/applications/${application.websiteSource.id}`,{method:'PATCH',body:{programId:matches[0].id,detailedStatus:websiteApplicationStatus(nextStatus),notes:req.body.notes ?? application.notes ?? '',intake:req.body.intake ?? application.intake ?? '',crmDetails}});
+      const remote=await websiteClient.request(`/crm/applications/${application.websiteSource.id}`,{method:'PATCH',body:{...applicationEdit(db,req.user.companyId,application,req.body),programId:matches[0].id,notes:req.body.notes ?? application.notes ?? '',intake:req.body.intake ?? application.intake ?? '',crmDetails}});
+      Object.assign(application.websiteSource,{version:remote.__v,detailedStatus:remote.detailedStatus,advisorId:remote.assignedAdvisor || null});
     }
     const editableFields=['university','program','country','status','intake','applicationRefNo','portalUrl','portalUsername','portalPassword','offerType','offerConditions','rejectionReason','assignedTo','notes'];
     Object.assign(application, Object.fromEntries(editableFields.filter(key=>req.body[key]!==undefined).map(key=>[key,req.body[key]])), {
@@ -5371,6 +5375,7 @@ app.post('/api/applications/:id/documents', allowAction('uploadDocument'), uploa
       const form=new FormData();form.set('type',aliases[documentType] || documentType);form.set('file',new Blob([req.file.buffer],{type:req.file.mimetype}),req.file.originalname);
       sourceDocument=await websiteClient.request(`/crm/applications/${application.websiteSource.id}/documents`,{method:'POST',body:form});
     }
+    if(sourceDocument?.applicationVersion !== undefined)application.websiteSource.version=sourceDocument.applicationVersion;
     const storedFile=sourceDocument ? {fileName:sourceDocument.fileName,url:sourceDocument.filePath,size:sourceDocument.size,storageProvider:'study-birds'} : await storeUploadedFile(req.file,{folder:'applications'});
     const latestVersion = Math.max(
       0,
@@ -5457,7 +5462,7 @@ app.delete('/api/applications/:appId/documents/:docId', allowAction('deleteDocum
     const index = application.documents.findIndex(item => item.id === req.params.docId);
     if (index < 0) throw Object.assign(new Error('المستند غير موجود'), { status: 404 });
     const document=application.documents[index];
-    if(document.websiteDocumentId){assertWebsiteWrites();await websiteClient.request(`/crm/applications/${application.websiteSource.id}/documents/${document.websiteDocumentId}`,{method:'DELETE'});}
+    if(document.websiteDocumentId){assertWebsiteWrites();const saved=await websiteClient.request(`/crm/applications/${application.websiteSource.id}/documents/${document.websiteDocumentId}`,{method:'DELETE'});application.websiteSource.version=saved.applicationVersion;}
     application.documents.splice(index,1);
     const previousVersion = application.documents
       .filter(item => item.type === document.type)
@@ -6098,6 +6103,7 @@ app.patch('/api/payments/:id', allowRoles('admin', 'management'), async (req, re
   const result = await mutateDb(db => {
     const payment = db.payments.find(item => item.id === req.params.id && item.companyId === req.user.companyId);
     if (!payment) throw Object.assign(new Error('السند غير موجود'), { status: 404 });
+    if(payment.websiteSource?.readOnly)throw Object.assign(new Error('سند الموقع محفوظ بالمصدر؛ عدّل إثبات الدفع من قسم المالية.'),{status:409});
     if (typeof req.body.notes === 'string') payment.notes = req.body.notes;
     if (typeof req.body.reference === 'string') payment.reference = req.body.reference;
     payment.adminUpdatedAt = now();
@@ -6114,6 +6120,7 @@ app.delete('/api/payments/:id', allowRoles('admin', 'management'), async (req, r
     const index = db.payments.findIndex(item => item.id === req.params.id && item.companyId === req.user.companyId);
     if (index === -1) throw Object.assign(new Error('السند غير موجود'), { status: 404 });
     const payment=db.payments[index];
+    if(payment.websiteSource?.readOnly)throw Object.assign(new Error('لا يمكن حذف سند مستورد ومعتمد؛ راجع الإثبات في الموقع.'),{status:409});
     const invoice = db.invoices.find(item => item.id === payment.invoiceId);
     if(invoice?.websiteSource?.id){
       assertWebsiteWrites();const remote=await websiteClient.request(`/crm/invoices/${invoice.websiteSource.id}`);

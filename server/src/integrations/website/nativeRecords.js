@@ -1,10 +1,12 @@
+import {websiteApplicationStatuses} from './applicationStatuses.js';
+import {localAdvisorId} from './applicationEdit.js';
 import { randomUUID } from 'node:crypto';
 
 export const nativeResources = { students: 'students', applications: 'applications', financials: 'invoices', employees: 'employees' };
 const validId = value => typeof value === 'string' && /^[a-f\d]{24}$/i.test(value);
 const idOf = value => typeof value === 'string' ? value : value?._id;
 const label = value => typeof value === 'string' ? value : value?.name || value?.title || '';
-const statuses = { submitted:'Submitted to University', 'under-review':'Under Review', 'additional-documents-required':'Preparing Documents', 'conditional-admission':'Conditional Acceptance', 'final-admission':'Final Acceptance', rejected:'Rejected', 'payment-required':'Conditional Acceptance' };
+const statuses = websiteApplicationStatuses;
 export const websitePaid = row => Math.min(Number(row.amount || 0), Math.max(0, row.status === 'paid' ? Number(row.amount || 0) : Number(row.crmPaidAmount || 0) + Number(row.walletCreditApplied || 0)));
 
 // Only an explicit source ID identifies a record. Names/emails never join people.
@@ -64,11 +66,14 @@ export function materializeWebsiteRows(db, companyId, resource, rows, actorId = 
     if (resource === 'students') {
       const profile = remote.profile || remote.applicantProfile || {};
       for (const field of ['name','email']) if (remote[field] !== undefined) row[field] = remote[field];
-      for (const field of ['phone','nationality']) if (profile[field] !== undefined || remote[field] !== undefined) row[field] = profile[field] ?? remote[field];
+      for (const field of ['phone','nationality','englishFullName','passportNumber','dateOfBirth','currentEducation','currentEducationLevel','currentResidenceCountry','currentResidenceRegion','gpa','intake','bio','address','nativeLanguage','otherLanguages','targetCountries','parentInfo','emergencyContact','englishTest']) if (profile[field] !== undefined || remote[field] !== undefined) row[field] = profile[field] ?? remote[field];
     } else if (resource === 'applications') {
       const university = remote.program?.university || remote.university;
       Object.assign(row, {studentId:studentRow.id, status:statuses[remote.detailedStatus || remote.status] || row.status || 'Preparing Documents', university:label(university), country:label(university?.country), program:[label(remote.program), remote.program?.degreeLevel, remote.program?.language].filter(Boolean).join(' — ')});
       row.websiteSource.programId = idOf(remote.program);
+      Object.assign(row.websiteSource,{version:remote.__v || 0,detailedStatus:remote.detailedStatus || remote.status,advisorId:idOf(remote.assignedAdvisor) || null});
+      if(remote.assignedAdvisor !== undefined)row.assignedTo=localAdvisorId(db,companyId,idOf(remote.assignedAdvisor)) || '';
+      row.websiteSource.advisorName=remote.assignedAdvisor?.name || '';
       if (remote.notes !== undefined) row.notes = remote.notes;
       if (remote.applicantProfile?.intake !== undefined) row.intake = remote.applicantProfile.intake;
       for (const field of ['applicationRefNo','portalUrl','portalUsername','offerType','offerConditions','rejectionReason']) if (remote.crmDetails?.[field] !== undefined) row[field] = remote.crmDetails[field];
@@ -79,6 +84,7 @@ export function materializeWebsiteRows(db, companyId, resource, rows, actorId = 
       Object.assign(row.websiteSource, {paid, crmPaidAmount:Number(remote.crmPaidAmount || 0), version:remote.__v || 0});
     } else if (resource === 'employees') {
       Object.assign(row, {name:remote.name || '', email:remote.email || '', title:remote.employeeRole || remote.role, status:remote.isActive === false ? 'Inactive' : row.status === 'Terminated' ? 'Terminated' : 'Active'});
+      Object.assign(row.websiteSource,{employeeRole:remote.employeeRole,permissions:remote.permissions || []});
       row.department ||= remote.employeeRole === 'educational_consultant' ? 'Consultancy' : 'Study Birds';
       row.joinDate ||= remote.createdAt?.slice(0,10) || '';
       // A personnel file grants no CRM login, role, salary or permissions.

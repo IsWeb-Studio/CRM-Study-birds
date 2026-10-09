@@ -31,6 +31,10 @@ const modulePermissions = {
 };
 
 const actionPermissions = {
+  manageConsultations: ['admin', 'management', 'consultant'],
+  manageServices: ['admin', 'management', 'admissions', 'reception'],
+  manageSupport: ['admin', 'management', 'consultant', 'admissions', 'reception'],
+  deleteApplication: ['admin', 'management'],
   manageWebsite: ['admin', 'management'],
   createLead: ['admin', 'management', 'consultant', 'reception'],
   editLead: ['admin', 'management', 'consultant', 'reception'],

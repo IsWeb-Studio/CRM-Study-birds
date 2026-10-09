@@ -1,4 +1,5 @@
 const valueMap = {
+  Draft:'مسودة','Documents Missing':'المستندات ناقصة','Ready to Apply':'جاهز للتقديم','Payment Required':'الدفع مطلوب','Payment Verification':'التحقق من الدفع','Visa Preparation':'تجهيز التأشيرة',Accepted:'مقبول',
   admin: 'مسؤول النظام',
   management: 'الإدارة',
   consultant: 'مستشار',

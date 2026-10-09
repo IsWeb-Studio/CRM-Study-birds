@@ -1,3 +1,4 @@
+import FinancialReconciliation from '../components/FinancialReconciliation.jsx';
 import InvoiceWorkspace from '../components/InvoiceWorkspace.jsx';
 import React, { useContext, useEffect, useMemo, useState } from 'react';
 import { UnifiedSectionContext, useUnifiedRecords } from '../components/UnifiedSectionContext.jsx';
@@ -838,6 +839,7 @@ export default function Finance() {
 
       <Modal open={historyOpen} onClose={() => setHistoryOpen(false)} title={`سجل السندات · ${selected?.number || ''}`} subtitle={selected ? `المحصّل ${formatMoney(selected.paid, selected.currency)} من أصل ${formatMoney(selected.total, selected.currency)}` : ''} size="lg">
         <div className="payment-history">
+          {selected?.websiteSource?.id && <FinancialReconciliation invoice={selected} canImport={canRecordPayment} onSaved={load}/>}
           {selected?.installments?.length ? (
             <div className="installment-summary-grid">
               {selected.installments.map(item => (

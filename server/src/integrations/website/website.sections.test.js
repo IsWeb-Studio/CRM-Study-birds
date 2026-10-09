@@ -35,7 +35,7 @@ test('finance staff read financials but cannot read admissions or content; custo
   assert.equal((await invoke(route, custom, { resource: 'applications' })).permitted, true);
   assert.equal((await invoke(route, custom, { resource: 'financials' })).code, 403);
 });
-test('writing requires the section and explicit manageWebsite action; it never grants a different section', async () => {
+test('writing requires section access and the corresponding action; it never grants a different section', async () => {
   const route = routes().find(row => row.path.endsWith('/requests/:resource/:id/:action'));
   const custom = { role: 'finance', permissionMode: 'custom', permissions: { modules: ['finance'], actions: ['manageWebsite'] } };
   const check = await invoke(route, custom, { resource: 'financials', id, action: 'update' });
@@ -44,7 +44,7 @@ test('writing requires the section and explicit manageWebsite action; it never g
   assert.equal(writeAllowed, true);
   assert.equal((await invoke(route, custom, { resource: 'applications', id, action: 'status' })).code, 403);
   const ordinary = await invoke(route, { role: 'finance' }, { resource: 'financials', id, action: 'update' });
-  route.handlers[1](ordinary.req, ordinary.res, () => assert.fail('ordinary finance cannot write website'));
+  let financeAllowed=false;route.handlers[1](ordinary.req, ordinary.res, () => {financeAllowed=true;});assert.equal(financeAllowed,true);
 });
 test('singleton settings preserve untouched fields and use the existing PUT endpoint', async () => {
   const calls = [];
