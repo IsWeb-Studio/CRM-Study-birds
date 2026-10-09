@@ -9,7 +9,7 @@ import SourceRecordActions from './SourceRecordActions.jsx';
 import { useAuth } from '../auth.jsx';
 import { can } from '../permissions.js';
 
-const primary = { students:'students', admissions:'applications', finance:'financials', hr:'employees', programs:'programs', universities:'programs' };
+const primary = { students:'students', admissions:'applications', finance:'financials', hr:'employees', programs:'programs', universities:'programs',scholarships:'scholarshipCatalog' };
 const nativeLabels = { students:'الطلاب', admissions:'طلبات القبول', finance:'الفواتير', hr:'الموظفون', programs:'البرامج', universities:'الدليل الجامعي', consultancy:'العملاء المحتملون', inbox:'المحادثات', reception:'الاستقبال', scholarships:'دليل المنح', settings:'إعدادات المؤسسة', catalogManagement:'تحرير الدليل' };
 export default function SectionWorkspace({ module, children }) {
   const { user } = useAuth();
@@ -47,10 +47,10 @@ export default function SectionWorkspace({ module, children }) {
     <Card><div className="panel-toolbar"><div className="table-actions">
       {children && <Button variant={tab === 'main' ? 'primary' : 'ghost'} onClick={() => setTab('main')}>{nativeLabels[module] || 'السجلات'}</Button>}
       {resources.map(item => <Button key={item.key} variant={tab === item.key ? 'primary' : 'ghost'} onClick={() => setTab(item.key)}>{item.label.replace('الموقع','').trim()}</Button>)}
-    </div><div className="table-actions">{['programs','universities'].includes(module) && connection?.writesEnabled && can(user, 'manageWebsite') && <SourceRecordActions label="إضافة برنامج" record={{websiteSource:{resource:'programs',record:{}}}} />}<Button variant="secondary" disabled={loading} onClick={refresh}>تحديث</Button></div></div></Card>
+    </div><div className="table-actions">{['programs','universities'].includes(module) && connection?.writesEnabled && can(user, 'manageWebsite') && <SourceRecordActions label="إضافة برنامج" record={{websiteSource:{resource:'programs',record:{}}}} />}{module === 'universities' && connection?.writesEnabled && can(user,'manageWebsite') && <SourceRecordActions label="إضافة جامعة" record={{websiteSource:{resource:'universities',record:{}}}} />}{module === 'scholarships' && connection?.writesEnabled && can(user,'manageWebsite') && <SourceRecordActions label="إضافة منحة" record={{websiteSource:{resource:'scholarshipCatalog',record:{}}}} />}<Button variant="secondary" disabled={loading} onClick={refresh}>تحديث</Button></div></div></Card>
     {errors.map(error => <p key={error} role="alert" className="website-error">{error}</p>)}
     {connection && !connection.ready && <p role="status">ربط الموقع غير مفعّل؛ السجلات الحالية متاحة.</p>}
-    {tab === 'main' && children}
+    {tab === 'main' && (module === 'catalogManagement' ? <WebsitePage embedded resources={['countries','universities','programs','scholarshipCatalog','studyFields']} /> : children)}
     {tab !== 'main' && <WebsitePage key={tab} embedded resources={[tab]} localRows={localRows} />}
     {notificationRecord && <WebsitePage dialogOnly resources={[primary[module]]} externalRecord={notificationRecord} onDismiss={dismissNotification} onSaved={() => { dismissNotification(); refresh(); }} />}
   </div></UnifiedSectionContext.Provider>;

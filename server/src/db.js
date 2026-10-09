@@ -140,7 +140,7 @@ async function getEducationCatalog(legacyCatalog) {
   const record = await collection.findOne({ _id: mongoDocumentId });
   let catalog = record?.catalog;
 
-  if (!hasEducationCatalogEntries(catalog)) {
+  if (!record && !hasEducationCatalogEntries(catalog)) {
     catalog = hasEducationCatalogEntries(legacyCatalog)
       ? legacyCatalog
       : await readUnifiedCatalogImport().catch(() => emptyEducationCatalog());

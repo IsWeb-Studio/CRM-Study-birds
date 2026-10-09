@@ -90,6 +90,12 @@ export default function WebsitePage({ embedded = false, resources = null, dialog
       window.open(data.url, '_blank', 'noopener,noreferrer');
     } catch (e) { setError(e.message); } finally { setBusy(false); }
   }
+  async function deleteRecord() {
+    if (!window.confirm('حذف السجل من الدليل في الموقع؟')) return;
+    setBusy(true);setError('');
+    try {await api(`/api/integrations/website/content/${resource}/${selected._id}/delete`,{method:'POST',body:'{}'});setSelected(null);onSaved?.();if (!dialogOnly) await load();}
+    catch(e) {setError(e.message);} finally {setBusy(false);}
+  }
   function choose(action) {
     setOperation(action);
     const fields = result.actions[action].fields;
@@ -120,6 +126,7 @@ export default function WebsitePage({ embedded = false, resources = null, dialog
       {!embedded && !dialogOnly && canOpenModule(user, 'website') && <LinkWebsiteRecordButton resource={resource} record={selected} />}
       {selected.__crm && canOpenModule(user, 'catalogManagement') && <Button onClick={() => navigate('/catalog-management')}>تحرير في الدليل الدراسي</Button>}
       {!selected.__crm && <WebsiteOperations resource={resource} record={selected} editFields={selected._id ? result?.editFields || [] : result?.createFields || result?.editFields || []} writesEnabled={connection?.writesEnabled} onSaved={() => { setSelected(null); onSaved?.(); if (!dialogOnly) load(); }} />}
+      {selected._id && !selected.__crm && connection?.writesEnabled && ['universities','programs','scholarshipCatalog','countries'].includes(resource) && <Button variant="danger" disabled={busy} onClick={deleteRecord}>حذف من الدليل</Button>}
       {['documents', 'paymentProofs'].includes(resource) && <Button disabled={busy} variant="secondary" onClick={() => openFile(resource === 'documents' ? 'documents' : 'payment-proofs', selected._id)}>فتح الملف</Button>}
       {Array.isArray(selected.documents) && selected.documents.filter(doc => doc && typeof doc === 'object' && doc._id).map(doc => <Button key={doc._id} disabled={busy} variant="secondary" onClick={() => openFile('documents', doc._id)}>{doc.fileName || doc.type || 'فتح مستند'}</Button>)}
       {connection?.writesEnabled && !selected.__crm && allowedActions.length > 0 && <form onSubmit={save}><label className="field"><span>الإجراء</span><select value={operation} disabled={busy} onChange={e => choose(e.target.value)}><option value="">اختر إجراء</option>{allowedActions.map(key => <option key={key} value={key}>{actionLabels[key]}</option>)}</select></label>

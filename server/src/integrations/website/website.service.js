@@ -4,7 +4,7 @@ import { resourceModules, websiteSections } from './website.sections.js';
 // Website records remain in the website database. This gateway never imports or deletes CRM records.
 export const websiteResources = {
   applications: { label: 'طلبات القبول', path: '/applications', detail: '/applications', actions: { status: { method: 'PUT', suffix: '/status', fields: ['detailedStatus', 'note'] }, assignment: { method: 'PATCH', suffix: '/assignment', fields: ['advisorId', 'dueAt', 'version'] }, journey: { method: 'PATCH', suffix: '/post-admission', fields: ['stage', 'status', 'note', 'dueAt', 'reference', 'version', 'studiesStartAt'] }, visa: { method: 'PATCH', suffix: '/visa-case', fields: ['status', 'requirements', 'appointmentDate', 'appointmentLocation', 'insuranceProvider', 'insurancePolicyNumber', 'insuranceExpiresAt', 'notes', 'version'] }, requestDocument: { method: 'POST', suffix: '/document-requests', fields: ['type', 'note'] } } },
-  students: { label: 'طلاب الموقع', path: '/admin/students', detail: '/admin/students' },
+  students: { label: 'طلاب الموقع', path: '/admin/students', detail: '/admin/students',account:true,editPath:'/crm/accounts',editMethod:'PATCH',editFields:['name','email','password','isActive','phone','nationality','englishFullName','passportNumber','dateOfBirth','gpa','bio','address','intake','nativeLanguage'] },
   services: { label: 'طلبات الخدمات', path: '/service-requests', detail: '/service-requests', actions: { update: { method: 'PATCH', fields: ['status', 'assignedTo', 'staffNote', 'expectedVersion'] }, driver: { method: 'PATCH', suffix: '/driver', fields: ['name', 'phone', 'vehicleType', 'vehicleNumber', 'etaMinutes'] } } },
   housing: { label: 'حجوزات السكن', path: '/admin/accommodation-bookings', actions: { update: { method: 'PATCH', fields: ['status', 'staffNote', 'version'] } } },
   arrival: { label: 'الوصول واستقبال المطار', path: '/admin/student-arrival-requests', actions: { update: { method: 'PATCH', fields: ['status', 'adminNote', 'travelAlert', 'pickup'] } } },
@@ -30,7 +30,7 @@ export const websiteResources = {
   communityPosts: { label: 'منشورات المجتمع', path: '/admin/community-posts', detail: '/admin/community-posts', actions: { update: { method: 'PATCH', fields: ['status', 'moderationNote'] } } },
   moderationLog: { label: 'سجل إشراف المجتمع', path: '/admin/community-moderation-log' },
   universityAccounts: { label: 'حسابات الجامعات', path: '/admin/university-accounts', createFields: ['name', 'email', 'password', 'universityId'], actions: { update: { method: 'PATCH', fields: ['isActive', 'linkedUniversity'] } } },
-  employees: { label: 'موظفو الموقع', path: '/admin/employees', actions: { update: { method: 'PATCH', suffix: '/role', fields: ['employeeRole'] } } },
+  employees: { label: 'موظفو الموقع', path: '/admin/employees',account:true,editPath:'/crm/accounts',editMethod:'PATCH',editFields:['name','email','password','isActive','employeeRole','permissions'], actions: { update: { method: 'PATCH', suffix: '/role', fields: ['employeeRole'] } } },
   employeeStats: { label: 'إحصاءات موظفي الموقع', path: '/admin/employee-stats' },
   websiteUsers: { label: 'حسابات الموقع', path: '/admin/users', actions: { update: { method: 'PATCH', fields: ['name', 'email', 'isActive'] } } },
   marketingAssets: { label: 'مواد تسويق الوكلاء', path: '/admin/marketing-assets', actions: { update: { method: 'PUT', fields: ['title', 'description', 'type', 'published'] } } },
@@ -45,6 +45,7 @@ export const websiteResources = {
   countries: { label: 'إدارة الدول', path: '/admin/countries', editFields: ['name', 'code', 'heroTitle', 'heroSubtitle', 'heroImage', 'description'] },
   universities: { label: 'إدارة الجامعات', path: '/universities', detail: '/universities', editFields: ['name', 'country', 'city', 'language', 'overview', 'logo', 'featured', 'isPartnerInstitution'] },
   programs: { label: 'إدارة البرامج', path: '/programs', detail: '/programs', editFields: ['title', 'university', 'degreeLevel', 'fieldOfStudy', 'language', 'duration', 'tuition', 'partnerTuition', 'summary', 'featured'] },
+  scholarshipCatalog: {label:'دليل المنح',path:'/scholarships/manage',createPath:'/scholarships',editPath:'/scholarships',deletePath:'/scholarships',editFields:['title','university','country','degree','funding','eligibility','deadline','active']},
   contentServices: { label: 'محتوى الخدمات', path: '/admin/our-services', editFields: ['title', 'description', 'detailBody', 'price', 'durationDays', 'image'] },
   faqs: { label: 'الأسئلة الشائعة', path: '/admin/faqs', editFields: ['question', 'answer'] },
   knowledge: { label: 'قاعدة المعرفة', path: '/admin/knowledge-base', editFields: ['title', 'body', 'category', 'summary', 'published'] },
@@ -72,12 +73,13 @@ export function createWebsiteClient({ config = () => websiteConfig(), fetchImpl 
     const c = config();
     if (!c.enabled || !c.ready) throw fail('ربط الموقع غير مفعّل أو رمز الاتصال غير مضبوط.', 503);
     if (!/^\/[a-z][a-z0-9/?=&._-]*$/i.test(path)) throw fail('مسار غير مسموح.');
+    const multipart=body instanceof FormData;
     let response;
     try {
       response = await fetchImpl(`${c.baseUrl}${path}`, {
         method, redirect: 'error', signal: AbortSignal.timeout(15000),
-        headers: { Authorization: `Bearer ${c.token}`, Accept: 'application/json', ...(body ? { 'Content-Type': 'application/json' } : {}) },
-        ...(body ? { body: JSON.stringify(body) } : {}),
+        headers: { Authorization: `Bearer ${c.token}`, Accept: 'application/json', ...(body && !multipart ? { 'Content-Type': 'application/json' } : {}) },
+        ...(body ? { body: multipart ? body : JSON.stringify(body) } : {}),
       });
     } catch { throw fail('تعذر الاتصال بالموقع. حاول مرة أخرى؛ لم تُغيّر بيانات CRM.', 502); }
     const data = await response.json().catch(() => null);
@@ -102,7 +104,7 @@ export function createWebsiteClient({ config = () => websiteConfig(), fetchImpl 
     if (!refresh && cachedCatalog && Date.now() < cacheUntil) return cachedCatalog;
     if (catalogFlight) return catalogFlight;
     catalogFlight = (async () => {
-      const [countries, universities, programs] = await Promise.all([list('/content/countries'), list('/universities'), list('/programs')]);
+      const [countries, universities, programs, scholarships] = await Promise.all([list('/content/countries'), list('/universities'), list('/programs'),list('/scholarships/manage')]);
       const universityIndex = new Map(universities.rows.map(row => [row._id, row]));
       const name = value => typeof value === 'string' ? value : value?.ar || value?.en || '';
       const mapped = {
@@ -113,7 +115,7 @@ export function createWebsiteClient({ config = () => websiteConfig(), fetchImpl 
           // The selection label includes variants; id always remains the website id.
           const department = [row.title, row.degreeLevel, row.language].filter(Boolean).join(' — ');
           return { id: row._id, source: 'study-birds', title: row.title, universityId: u?._id, university: u?.name || '', country: name(u?.country?.name), city: u?.city || '', department, program: department, degree: row.degreeLevel || '', language: row.language || '', fees: row.tuition ?? '', discount_fees: row.partnerTuition ?? '', currency: 'USD' };
-        }), scholarships: [], source: 'study-birds', fetchedAt: new Date().toISOString(),
+        }), scholarships: scholarships.rows.map(row=>({...row,id:row._id,name:row.title,program_scope:row.title,price:row.funding,websiteSource:{resource:'scholarshipCatalog',id:row._id,record:row}})), source: 'study-birds', fetchedAt: new Date().toISOString(),
       };
       cachedCatalog = mapped;
       cacheUntil = Date.now() + 60000;
@@ -126,7 +128,7 @@ export function createWebsiteClient({ config = () => websiteConfig(), fetchImpl 
     if (!def) throw fail('قسم غير معروف.', 404);
     const result = def.singleton ? { rows: [{ ...(await request(def.path)), _id: 'singleton' }], paginated: false } : await list(def.path, def.collection);
     if (key === 'visaCases') result.rows = result.rows.map(row => ({ ...row, _id: row.applicationId }));
-    return { ...result, source: 'study-birds', fetchedAt: new Date().toISOString(), completeness: result.paginated ? 'paginated' : 'endpoint-limit', singleton: Boolean(def.singleton), detailSupported: Boolean(def.detail), editFields: def.editFields || [], createFields: def.singleton ? [] : def.createFields || def.editFields || [], actions: def.actions || {} };
+    return { ...result, source: 'study-birds', fetchedAt: new Date().toISOString(), completeness: result.paginated ? 'paginated' : 'endpoint-limit', singleton: Boolean(def.singleton), detailSupported: Boolean(def.detail), editFields: def.editFields || [], createFields: def.singleton || def.account ? [] : def.createFields || def.editFields || [], actions: def.actions || {} };
   }
   async function detail(key, id) {
     assertId(id);
@@ -169,7 +171,7 @@ export function createWebsiteClient({ config = () => websiteConfig(), fetchImpl 
     if (def.singleton && id !== 'singleton') throw fail('هذا القسم يدعم تعديل السجل الحالي فقط.');
     if (!payload || typeof payload !== 'object' || Array.isArray(payload) || !Object.keys(payload).length || Object.keys(payload).some(field => !fields.includes(field))) throw fail('حقول المحتوى غير مسموحة.');
     let body = { ...payload };
-    if (id) {
+    if (id && !def.account) {
       // Some website controllers rebuild the whole entity. Preserve fields outside this editor.
       const existing = def.singleton ? (await request(def.path) || {}) : def.detail ? await detail(key, id) : (await resource(key)).rows.find(row => row._id === id);
       if (!existing) throw fail('السجل غير موجود.', 404);
@@ -178,11 +180,26 @@ export function createWebsiteClient({ config = () => websiteConfig(), fetchImpl 
       if (body.country && typeof body.country === 'object') body.country = body.country._id;
       if (body.university && typeof body.university === 'object') body.university = body.university._id;
     }
-    const result = await request(`${!id && def.createPath ? def.createPath : def.path}${id && !def.singleton ? `/${id}` : ''}`, { method: id ? 'PUT' : 'POST', body });
+    if (def.account && !id) throw fail('إنشاء الحساب من نموذج الطالب أو الموظف.');
+    if (def.account && body.password === '') delete body.password;
+    if (key === 'students') {
+      const profileKeys=['phone','nationality','englishFullName','passportNumber','dateOfBirth','gpa','bio','address','intake','nativeLanguage'];
+      const profile=Object.fromEntries(profileKeys.filter(field=>body[field]!==undefined).map(field=>[field,body[field]]));
+      for(const field of profileKeys) delete body[field];
+      if(Object.keys(profile).length)body.profile=profile;
+    }
+    const result = await request(`${!id && def.createPath ? def.createPath : id && def.editPath ? def.editPath : def.path}${id && !def.singleton ? `/${id}` : ''}`, { method: id ? def.editMethod || 'PUT' : 'POST', body });
     cachedCatalog = null; cacheUntil = 0;
     return result;
   }
-  return { request, catalog, resource, detail, action, studentService, attachment, section, editResource };
+  async function deleteResource(key,id) {
+    assertId(id);
+    if (!['universities','programs','scholarshipCatalog','countries'].includes(key)) throw fail('حذف هذا النوع غير مدعوم.',400);
+    const def=websiteResources[key];
+    const result = await request(`${def.deletePath || def.path}/${id}`,{method:'DELETE'});
+    cachedCatalog=null;cacheUntil=0;return result;
+  }
+  return { request, catalog, resource, detail, action, studentService, attachment, section, editResource,deleteResource };
 }
 function assertId(id) { if (!/^[a-f\d]{24}$/i.test(id || '')) throw fail('معرّف الموقع غير صالح.'); }
 
@@ -250,6 +267,7 @@ export function mountWebsiteRoutes(app, { allowModule, allowAction, client, read
     res.json(await client.attachment(req.params.kind, req.params.id));
   }));
   app.get('/api/integrations/website/requests/:resource', sectionAccess(req => req.params.resource), wrap(async (req, res) => res.json(await client.resource(req.params.resource))));
+  app.post('/api/integrations/website/content/:resource/:id/delete',sectionAccess(req=>req.params.resource),writeAccess,wrap(async(req,res)=>res.json(await remoteWrite(req,'content-delete',()=>client.deleteResource(req.params.resource,req.params.id)))));
   app.get('/api/integrations/website/requests/:resource/:id', sectionAccess(req => req.params.resource), wrap(async (req, res) => res.json(await client.detail(req.params.resource, req.params.id))));
   app.post('/api/integrations/website/requests/:resource/:id/:action', sectionAccess(req => req.params.resource), writeAccess, wrap(async (req, res) => {
     if (process.env.STUDY_BIRDS_ALLOW_WRITES !== 'true') throw fail('تعديل بيانات الموقع غير مفعّل على خادم CRM.', 403);

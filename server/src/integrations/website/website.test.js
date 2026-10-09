@@ -21,6 +21,7 @@ test('catalog reads every page, preserves website ids and distinct language vari
     const path = new URL(url).pathname;
     if (path.endsWith('/countries')) return response([{ _id: 'c1', name: 'Turkey' }]);
     if (path.endsWith('/universities')) return response([{ _id: 'u1', name: 'University', country: { name: 'Turkey' } }]);
+    if (path.endsWith('/scholarships/manage')) return response([{_id:'s1',title:'Website scholarship'}]);
     const page = Number(new URL(url).searchParams.get('page'));
     return response({ items: [{ _id: `p${page}`, title: 'Medicine', university: 'u1', degreeLevel: 'Bachelor', language: page === 1 ? 'English' : 'Turkish', tuition: 5000 }], pagination: { totalPages: 2, hasNextPage: page === 1 } });
   } });
@@ -30,7 +31,8 @@ test('catalog reads every page, preserves website ids and distinct language vari
   assert.equal(catalog.programs[0].id, 'p1');
   assert.equal(catalog.programs[0].universityId, 'u1');
   await client.catalog();
-  assert.equal(calls.length, 4);
+  assert.equal(calls.length, 5);
+  assert.equal(catalog.scholarships[0].name,'Website scholarship');
 });
 test('object-shaped financial endpoint extracts invoices and payment proofs separately', async () => {
   const client = createWebsiteClient({ config, fetchImpl: async () => response({ invoices: [{ _id: 'invoice' }], paymentProofs: [{ _id: 'proof' }] }) });

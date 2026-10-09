@@ -224,7 +224,7 @@ export default function HR() {
   };
 
   const saveHrConfig = async (employeeId, payload) => {
-    if (employees.find(row => row.id === employeeId)?.websiteSource) {
+    if (employees.find(row => row.id === employeeId)?.websiteSource?.readOnly) {
       setToast({ type: 'error', message: 'استخدم إدارة السجل لتحديث بيانات الموظف المرتبط.' });
       return;
     }
@@ -503,13 +503,13 @@ export default function HR() {
                 <div className="employee-card-actions" onClick={event => event.stopPropagation()}>
                   <a href={`mailto:${employee.email}`}>تواصل</a>
                   <SourceRecordActions record={employee} />
-                  {canTerminateEmployee && !employee.websiteSource && (
+                  {canTerminateEmployee && !employee.websiteSource?.readOnly && (
                     <button className="employee-card-action danger-text" type="button" onClick={() => openTerminateModal(employee)}>
                       <UserX2 size={14} />
                       {employee.status === 'Active' ? 'إقالة' : 'تفعيل'}
                     </button>
                   )}
-                  {canDeleteEmployee && !employee.websiteSource && (
+                  {canDeleteEmployee && !employee.websiteSource?.readOnly && (
                     <button className="employee-card-action danger-text" type="button" onClick={() => openDeleteModal(employee)}>
                       <Trash2 size={14} />
                       حذف
@@ -644,11 +644,11 @@ export default function HR() {
               <h2>أرشيف مستندات الموظف</h2>
             </div>
             {selectedEmployee && <SourceRecordActions record={selectedEmployee} />}
-            {selectedEmployee && !selectedEmployee.websiteSource && <Button type="button" onClick={() => setDocumentOpen(true)}><UploadCloud /> رفع مستند</Button>}
+            {selectedEmployee && !selectedEmployee.websiteSource?.readOnly && <Button type="button" onClick={() => setDocumentOpen(true)}><UploadCloud /> رفع مستند</Button>}
           </div>
           {selectedEmployee ? (
             <>
-              {!selectedEmployee.websiteSource && (canTerminateEmployee || canDeleteEmployee) && (
+              {!selectedEmployee.websiteSource?.readOnly && (canTerminateEmployee || canDeleteEmployee) && (
                 <div className="employee-detail-actions">
                   {canTerminateEmployee && (
                     <Button type="button" variant="secondary" onClick={() => openTerminateModal(selectedEmployee)}>
@@ -743,7 +743,7 @@ export default function HR() {
           <Field label="الموظف" className="field-full">
             <select required value={attendanceForm.employeeId} onChange={event => setAttendanceForm({ ...attendanceForm, employeeId: event.target.value })}>
               <option value="">اختر الموظف</option>
-              {employees.filter(employee => !employee.websiteSource).map(employee => <option value={employee.id} key={employee.id}>{employee.name}</option>)}
+              {employees.filter(employee => !employee.websiteSource?.readOnly).map(employee => <option value={employee.id} key={employee.id}>{employee.name}</option>)}
             </select>
           </Field>
           <Field label="التاريخ"><input type="date" value={attendanceForm.date} onChange={event => setAttendanceForm({ ...attendanceForm, date: event.target.value })} /></Field>
@@ -787,7 +787,7 @@ export default function HR() {
           </Field>
           <Field label="المسمى الوظيفي"><input required autoComplete="off" value={employeeForm.title} onChange={event => setEmployeeForm({ ...employeeForm, title: event.target.value })} /></Field>
           <Field label="الفرع"><input autoComplete="off" value={employeeForm.branch} onChange={event => setEmployeeForm({ ...employeeForm, branch: event.target.value })} /></Field>
-          <Field label="كلمة المرور"><input required minLength="6" type="password" autoComplete="new-password" value={employeeForm.password} onChange={event => setEmployeeForm({ ...employeeForm, password: event.target.value })} /></Field>
+          <Field label="كلمة المرور"><input required minLength="8" type="password" autoComplete="new-password" value={employeeForm.password} onChange={event => setEmployeeForm({ ...employeeForm, password: event.target.value })} /></Field>
           <Field label="تاريخ الانضمام"><input type="date" value={employeeForm.joinDate} onChange={event => setEmployeeForm({ ...employeeForm, joinDate: event.target.value })} /></Field>
           <Field label="الراتب الأساسي"><input min="0" type="number" value={employeeForm.basicSalary} onChange={event => setEmployeeForm({ ...employeeForm, basicSalary: event.target.value })} /></Field>
           <Field label="التارجت الشهري"><input min="0" type="number" value={employeeForm.monthlyTarget} onChange={event => setEmployeeForm({ ...employeeForm, monthlyTarget: event.target.value })} /></Field>
@@ -810,7 +810,7 @@ export default function HR() {
           <Field label="الموظف" className="field-full">
             <select required value={leaveForm.employeeId} onChange={event => setLeaveForm({ ...leaveForm, employeeId: event.target.value })}>
               <option value="">اختر الموظف</option>
-              {employees.filter(employee => !employee.websiteSource).map(employee => <option value={employee.id} key={employee.id}>{employee.name}</option>)}
+              {employees.filter(employee => !employee.websiteSource?.readOnly).map(employee => <option value={employee.id} key={employee.id}>{employee.name}</option>)}
             </select>
           </Field>
           <Field label="نوع الطلب">

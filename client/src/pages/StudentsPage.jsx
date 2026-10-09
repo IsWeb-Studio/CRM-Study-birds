@@ -1,15 +1,29 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useContext, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { FileText, GraduationCap, Mail, Phone, Receipt, Search, UserSquare2, WalletCards } from 'lucide-react';
 import { api, formatDate, formatMoney, initials } from '../api.js';
-import { Badge, Button, Card, Progress, Spinner } from '../components/UI.jsx';
+import { Badge, Button, Card, Field, Modal, Progress, Spinner } from '../components/UI.jsx';
 import { useAuth } from '../auth.jsx';
 import { tr } from '../i18n.js';
-import { useUnifiedRecords } from '../components/UnifiedSectionContext.jsx';
+import { UnifiedSectionContext, useUnifiedRecords } from '../components/UnifiedSectionContext.jsx';
+import {can} from '../permissions.js';
 import SourceRecordActions from '../components/SourceRecordActions.jsx';
 
 export default function StudentsPage() {
   const { user } = useAuth();
+  const {refresh,writesEnabled} = useContext(UnifiedSectionContext);
+  const [createOpen,setCreateOpen] = useState(false), [createBusy,setCreateBusy] = useState(false), [error,setError] = useState('');
+  const [form,setForm] = useState({name:'',email:'',password:'',phone:'',nationality:''});
+  const [linkTarget,setLinkTarget] = useState(null);
+  const [accountId,setAccountId]=useState('');
+  async function createStudent(event) {
+    event.preventDefault();setCreateBusy(true);setError('');
+    try {
+      const student = await api(linkTarget ? `/api/students/${linkTarget.id}/account` : '/api/students',{method:'POST',body:JSON.stringify(linkTarget ? accountId ? {accountId} : {password:form.password} : {name:form.name,email:form.email,password:form.password,profile:{phone:form.phone,nationality:form.nationality}})});
+      const data = await api('/api/students?page=1&limit=200');setStudents(data.items || []);setSelectedId(student.id);
+      setCreateOpen(false);setForm({name:'',email:'',password:'',phone:'',nationality:''});refresh();
+    } catch(e) {setError(e.message);} finally {setCreateBusy(false);}
+  }
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [localStudents, setStudents] = useState([]);
@@ -72,6 +86,15 @@ export default function StudentsPage() {
 
   return (
     <>
+      {writesEnabled && can(user,'createApplication') && <Button onClick={()=>{setAccountId('');setLinkTarget(null);setForm({name:'',email:'',password:'',phone:'',nationality:''});setError('');setCreateOpen(true);}}>إنشاء حساب طالب</Button>}
+      <Modal open={createOpen} onClose={()=>{if (!createBusy) setCreateOpen(false);}} title="إنشاء طالب وحسابه في الموقع">
+        <form className="form-grid" onSubmit={createStudent}>
+          {['name','email','phone','nationality'].map(key=><Field key={key} label={{name:'الاسم',email:'البريد الإلكتروني',phone:'الهاتف',nationality:'الجنسية'}[key]}><input required={['name','email'].includes(key)} type={key === 'email' ? 'email' : 'text'} value={form[key]} onChange={e=>setForm({...form,[key]:e.target.value})} disabled={createBusy || Boolean(linkTarget)} /></Field>)}
+          {linkTarget && <Field label="معرّف حساب الموقع الموجود (اختياري)" hint="لربط حساب موجود بنفس البريد؛ اتركه فارغًا لإنشاء حساب جديد."><input pattern="[a-fA-F0-9]{24}" value={accountId} onChange={e=>setAccountId(e.target.value)} disabled={createBusy} /></Field>}
+          {!(linkTarget && accountId) && <Field label="كلمة المرور" hint="8 أحرف على الأقل؛ اخلط أحرفًا وأرقامًا ورموزًا."><input required minLength={8} type="password" autoComplete="new-password" value={form.password} onChange={e=>setForm({...form,password:e.target.value})} disabled={createBusy} /></Field>}
+          {error && <p role="alert">{error}</p>}<Button type="submit" disabled={createBusy}>إنشاء الحساب</Button>
+        </form>
+      </Modal>
       <div className="kpi-grid student-kpis">
         <Card className="kpi-card">
           <div className="kpi-icon"><UserSquare2 /></div>
@@ -162,6 +185,7 @@ export default function StudentsPage() {
               </div>
 
               <div className="student-quick-actions">
+                {writesEnabled && can(user,'createApplication') && !selected.websiteSource && <Button onClick={()=>{setAccountId('');setLinkTarget(selected);setForm({name:selected.name || '',email:selected.email || '',phone:selected.phone || '',nationality:selected.nationality || '',password:''});setError('');setCreateOpen(true);}}>إنشاء حساب الموقع لهذا الطالب</Button>}
                 <SourceRecordActions record={selected} />
                 {selected.phone && <a className="btn btn-secondary" href={`tel:${selected.phone}`}>اتصال</a>}
                 {selected.email && <a className="btn btn-secondary" href={`mailto:${selected.email}`}>إيميل</a>}

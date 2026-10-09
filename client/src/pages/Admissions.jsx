@@ -557,7 +557,7 @@ export default function Admissions() {
               </div>
 
               <SourceRecordActions record={selected} />
-              {!selected.websiteSource && <form className="form-grid admissions-edit-grid" data-application-form="edit" onSubmit={saveApplicationDetails}>
+              {!selected.websiteSource?.readOnly && <form className="form-grid admissions-edit-grid" data-application-form="edit" onSubmit={saveApplicationDetails}>
                 <Field label="الجامعة">
                   <select
                     required
@@ -768,7 +768,7 @@ export default function Admissions() {
                       {doc.reviewNote && <p className="document-note">{doc.reviewNote}</p>}
                     </div>
                     <div className="document-actions">
-                      {doc.url ? <a target="_blank" rel="noreferrer" href={resolveFileUrl(doc)}>فتح</a> : <Badge tone="neutral">بدون ملف</Badge>}
+                      {doc.websiteDocumentId ? <Button variant="ghost" onClick={async()=>{try{const access=await api(`/api/integrations/website/files/documents/${doc.websiteDocumentId}`,{method:'POST'});window.open(access.url,'_blank','noopener,noreferrer');}catch(error){setToast({message:error.message,type:'error'});}}}>فتح</Button> : doc.url ? <a target="_blank" rel="noreferrer" href={resolveFileUrl(doc)}>فتح</a> : <Badge tone="neutral">بدون ملف</Badge>}
                       {canReviewDocument && <button className="icon-btn small" onClick={() => openReview(doc)} type="button"><ShieldCheck size={14} /></button>}
                       {canDeleteDocument && !selected?.websiteSource?.readOnly && <button className="icon-btn small danger" onClick={() => deleteDocument(doc)} type="button"><Trash2 size={14} /></button>}
                     </div>
@@ -802,7 +802,7 @@ export default function Admissions() {
                           <small>{formatDate(doc.uploadedAt)} · {doc.uploadedBy}</small>
                         </div>
                         <div className="document-actions">
-                          {doc.url ? <a target="_blank" rel="noreferrer" href={resolveFileUrl(doc)}>فتح</a> : <Badge tone="neutral">بدون ملف</Badge>}
+                          {doc.websiteDocumentId ? <Button variant="ghost" onClick={async()=>{try{const access=await api(`/api/integrations/website/files/documents/${doc.websiteDocumentId}`,{method:'POST'});window.open(access.url,'_blank','noopener,noreferrer');}catch(error){setToast({message:error.message,type:'error'});}}}>فتح</Button> : doc.url ? <a target="_blank" rel="noreferrer" href={resolveFileUrl(doc)}>فتح</a> : <Badge tone="neutral">بدون ملف</Badge>}
                         </div>
                       </article>
                     ))}

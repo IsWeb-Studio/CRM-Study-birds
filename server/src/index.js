@@ -1,5 +1,7 @@
 import 'dotenv/config';
 import { createWebsiteClient, mountWebsiteRoutes, websiteConfig } from './integrations/website/website.service.js';
+import { staffAccount, provisionAccount, assertWebsiteWrites, archiveLegacyCatalog, replaceLegacyCatalog, mountAccountBridge,websiteApplicationStatus,accountIdentity } from './integrations/website/accountBridge.js';
+import {mountWebsiteSso} from './integrations/website/websiteSso.js';
 import { mountWebsiteWorkflow, mountWebsiteEmail, startWebsitePolling } from './integrations/website/website.workflow.js';
 const websiteClient = createWebsiteClient();
 import express from 'express';
@@ -20,7 +22,7 @@ import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { GridFSBucket, ObjectId } from 'mongodb';
 import { readDb, mutateDb, getMongoDbHandle, getReadModelCollection, isMongoDbEnabled, warmDbCache } from './db.js';
-import { signToken, requireAuth, allowRoles, allowAction, allowAnyModule, allowModule } from './auth.js';
+import { signToken, requireAuth, allowRoles, allowAction, allowAnyModule, allowModule,canDoAction } from './auth.js';
 import { buildMetaOauthUrl, consumeMetaOauthState, createMetaOauthState } from './integrations/meta/metaOAuth.service.js';
 import { assertWhatsAppPermissions, discoverMetaAssets } from './integrations/meta/metaAssetDiscovery.service.js';
 import { subscribeMetaAssets } from './integrations/meta/metaWebhookSubscription.service.js';
@@ -1908,6 +1910,7 @@ function syncEmployeeRecordForUser(db, user) {
   }
 
   employee.linkedUserId = user.id;
+  if (user.websiteAccountId) employee.websiteSource = {resource:'employees',id:user.websiteAccountId,readOnly:false};
   employee.name = user.name;
   employee.email = user.email;
   employee.department = user.department || employee.department || 'Consultancy';
@@ -3326,8 +3329,17 @@ async function prepareDb() {
 }
 
 await prepareDb();
+if (process.env.STUDY_BIRDS_ENABLED === 'true') {
+  // Verify the canonical catalog before replacing the active legacy lists.
+  let ready=false;
+  try {const health=await websiteClient.request('/health');if(health.crmIntegration!==1)throw Object.assign(new Error('Website integration API upgrade is required.'),{status:409});await websiteClient.catalog(true);ready=true;} catch(error) {console.error('Website catalog unavailable; legacy catalog was preserved.',{status:error.status});}
+  if(ready){
+    await mutateDb(db => archiveLegacyCatalog(db));
+    await mutateDb(db => { if (replaceLegacyCatalog(db)) updateEducationCatalogDerivedSettings(db); });
+  }
+}
 
-app.get('/api/health', (_req, res) => res.json({ status: 'ok', time: now(), websiteIntegration: 4, buildCommit: process.env.RENDER_GIT_COMMIT || process.env.VERCEL_GIT_COMMIT_SHA || null }));
+app.get('/api/health', (_req, res) => res.json({ status: 'ok', time: now(), websiteIntegration: 5, buildCommit: process.env.RENDER_GIT_COMMIT || process.env.VERCEL_GIT_COMMIT_SHA || null }));
 
 app.post('/api/auth/login', async (req, res) => {
   const { email, password } = req.body || {};
@@ -3538,6 +3550,7 @@ app.get('/api/integrations/meta/oauth/callback', async (req, res) => {
 });
 
 mountWebsiteEmail(app, { mutateDb });
+mountWebsiteSso(app,{readDb});
 
 app.use('/api', requireAuth, async (req, res, next) => {
   const db = await readDb();
@@ -3558,6 +3571,7 @@ app.use('/api', requireAuth, async (req, res, next) => {
 });
 
 mountWebsiteRoutes(app, { allowModule, allowAction, client: websiteClient, readDb, mutateDb });
+mountAccountBridge(app, {client:websiteClient,allowAction,allowModule,readDb,mutateDb});
 const websiteWorkflow = mountWebsiteWorkflow(app, { allowModule, allowRoles, client: websiteClient, readDb, mutateDb });
 
 app.get('/api/me', async (req, res) => {
@@ -4157,7 +4171,7 @@ app.get('/api/education-catalog', allowAnyModule('universities', 'programs', 'sc
   const db = await readDb();
   const websiteEnabled = process.env.STUDY_BIRDS_ENABLED === 'true';
   const useWebsiteCatalog = websiteEnabled && req.query.source !== 'crm';
-  const catalog = useWebsiteCatalog ? { ...(await websiteClient.catalog()), scholarships: db.educationCatalog?.scholarships || [] } : sanitizeEducationCatalog(db.educationCatalog || {});
+  const catalog = useWebsiteCatalog ? await websiteClient.catalog() : {...sanitizeEducationCatalog(db.educationCatalog || {}),universities:[],programs:[],scholarships:[]};
   const catalogLinks = buildEducationCatalogLinks(catalog);
   const effectiveCountries = getEffectiveCatalogCountries(catalog, catalogLinks);
   res.json({
@@ -4181,6 +4195,7 @@ app.get('/api/education-catalog', allowAnyModule('universities', 'programs', 'sc
 });
 
 app.patch('/api/education-catalog', allowAction('manageSettings'), async (req, res) => {
+  if (process.env.STUDY_BIRDS_ENABLED === 'true') return res.status(409).json({message:'حرّر سجلات الدليل مباشرة؛ الحفظ الجماعي المحلي لا يعدّل الموقع.'});
   const payload = req.body || {};
 
   const result = await mutateDb(db => {
@@ -4210,6 +4225,7 @@ app.patch('/api/education-catalog', allowAction('manageSettings'), async (req, r
 });
 
 app.post('/api/education-catalog/import', allowAction('manageSettings'), upload.single('file'), async (req, res) => {
+  if (process.env.STUDY_BIRDS_ENABLED === 'true') return res.status(409).json({message:'الاستيراد المحلي معطل للدليل الموحد لتجنب إنشاء نسخ مستقلة.'});
   const target = normalizeCatalogValue(req.body?.target).toLowerCase();
   const mode = normalizeCatalogValue(req.body?.mode).toLowerCase() === 'replace' ? 'replace' : 'append';
   const validTargets = ['countries', 'universities', 'programs', 'scholarships'];
@@ -4383,7 +4399,11 @@ app.patch('/api/settings', allowAction('manageSettings'), async (req, res) => {
   res.json(result);
 });
 
-app.post('/api/users', allowAction('manageUsers'), async (req, res) => {
+app.post('/api/users', (req,res,next)=>{
+  if (canDoAction(req.user,'manageUsers')) return next();
+  if (canDoAction(req.user,'createEmployee') && ['consultant','admissions','finance','reception','hr'].includes(req.body.role) && req.body.permissionMode !== 'custom' && !req.body.permissions?.actions?.length && !req.body.permissions?.modules?.length) return next();
+  return res.status(403).json({message:'لا تملك صلاحية إنشاء هذا النوع من الحسابات.'});
+}, async (req, res) => {
   const payload = req.body || {};
   const email = String(payload.email || '').trim().toLowerCase();
   const password = String(payload.password || '');
@@ -4418,8 +4438,13 @@ app.post('/api/users', allowAction('manageUsers'), async (req, res) => {
       passwordHash: await bcrypt.hash(password, 10)
     };
 
+    if (process.env.STUDY_BIRDS_ENABLED === 'true') {
+      const remote = await provisionAccount(websiteClient,{companyId:req.user.companyId,kind:'employee',payload:staffAccount(payload)});
+      user.websiteAccountId = remote._id;
+    }
     db.users.unshift(user);
     const linkedEmployee = syncEmployeeRecordForUser(db, user);
+    if (linkedEmployee && user.websiteAccountId) linkedEmployee.websiteSource = {resource:'employees',id:user.websiteAccountId,readOnly:false};
     activity(db, req.user, 'created', 'user', user.id, `تمت إضافة المستخدم ${user.name}`);
     const { passwordHash, ...safeUser } = user;
     return { ...safeUser, linkedEmployeeId: linkedEmployee?.id || null };
@@ -4432,9 +4457,26 @@ app.patch('/api/users/:id', allowAction('manageUsers'), async (req, res) => {
   const payload = req.body || {};
 
   const result = await mutateDb(async db => {
-    const user = db.users.find(item => item.id === req.params.id);
+    const user = db.users.find(item => item.id === req.params.id && item.companyId === req.user.companyId);
     if (!user) throw Object.assign(new Error('المستخدم غير موجود'), { status: 404 });
 
+    if (payload.email && getScopedItems(db.users || [],req.user.companyId).some(item=>item.id !== user.id && item.email?.toLowerCase() === String(payload.email).trim().toLowerCase())) throw Object.assign(new Error('هذا البريد مستخدم مسبقًا'),{status:409});
+    if(!user.websiteAccountId && payload.websiteAccountId){
+      assertWebsiteWrites();
+      if(db.users.some(item=>item.id!==user.id && item.companyId===req.user.companyId && item.websiteAccountId===payload.websiteAccountId))throw Object.assign(new Error('حساب الموقع مرتبط بموظف آخر.'),{status:409});
+      const remote=await websiteClient.request('/crm/accounts/link',{method:'POST',body:{accountId:payload.websiteAccountId,companyId:req.user.companyId,recordId:accountIdentity(req.user.companyId,'employee',payload.email || user.email),kind:'employee',email:payload.email || user.email}});
+      user.websiteAccountId=remote._id;
+    }
+    if (!user.websiteAccountId && process.env.STUDY_BIRDS_ENABLED === 'true' && payload.password) {
+      const remote = await provisionAccount(websiteClient,{companyId:req.user.companyId,kind:'employee',payload:staffAccount({...user,...payload})});
+      user.websiteAccountId=remote._id;
+    }
+    if (user.websiteAccountId) {
+      assertWebsiteWrites();
+      const account = Object.fromEntries(['name','email','isActive','password'].filter(key => payload[key] !== undefined && payload[key] !== '').map(key => [key,payload[key]]));
+      if (payload.role && payload.role !== user.role) {const mapped=staffAccount({...user,...payload});account.employeeRole=mapped.employeeRole;account.permissions=mapped.permissions;}
+      if (Object.keys(account).length) await websiteClient.request(`/crm/accounts/${user.websiteAccountId}`,{method:'PATCH',body:account});
+    }
     if (payload.email) {
       const nextEmail = String(payload.email).trim().toLowerCase();
       const duplicate = getScopedItems(db.users || [], req.user.companyId)
@@ -5155,12 +5197,13 @@ app.get('/api/applications', async (req, res) => {
 });
 
 app.post('/api/applications', allowAction('createApplication'), async (req, res) => {
-  const result = await mutateDb(db => {
+  const result = await mutateDb(async db => {
     let student = db.students.find(item => item.id === req.body.studentId && item.companyId === req.user.companyId);
     if (!student && req.user.role === 'admissions') {
       throw Object.assign(new Error('موظف القبول لا يمكنه إنشاء طالب جديد من هذه الشاشة'), { status: 403 });
     }
     if (!student && req.body.studentName) {
+      if (process.env.STUDY_BIRDS_ENABLED === 'true') throw Object.assign(new Error('أنشئ الطالب وكلمة مروره من قسم الطلاب أولًا.'),{status:409});
       student = {
         id: randomUUID(),
         companyId: req.user.companyId,
@@ -5201,6 +5244,17 @@ app.post('/api/applications', allowAction('createApplication'), async (req, res)
       updatedAt: now()
     };
 
+    if (process.env.STUDY_BIRDS_ENABLED === 'true') {
+      assertWebsiteWrites();
+      if (!student.websiteSource?.id) throw Object.assign(new Error('أنشئ حساب الموقع لهذا الطالب من ملفه أولًا.'),{status:409});
+      const catalog=await websiteClient.catalog();
+      const matches=catalog.programs.filter(row=>row.university === application.university && (row.department === application.program || row.title === application.program));
+      if (matches.length !== 1) throw Object.assign(new Error('اختر برنامجًا محددًا بدرجته ولغته من دليل الموقع.'),{status:409});
+      const remote=await websiteClient.request('/crm/applications',{method:'POST',body:{studentId:student.websiteSource.id,programId:matches[0].id,notes:application.notes,intake:application.intake}});
+      application.websiteSource={resource:'applications',id:remote._id,readOnly:false};
+      const existing=db.applications.find(row=>row.companyId===req.user.companyId && row.websiteSource?.resource==='applications' && row.websiteSource.id===remote._id);
+      if(existing)return {...buildApplicationState(existing,db.settings),student};
+    }
     db.applications.unshift(application);
     activity(db, req.user, 'created', 'application', application.id, `تم إنشاء طلب قبول للطالب ${student.name}`);
     return { ...buildApplicationState(application, db.settings), applicationFeeStatus: computeApplicationFeeStatus(db, req.user.companyId, student.id), student };
@@ -5210,7 +5264,7 @@ app.post('/api/applications', allowAction('createApplication'), async (req, res)
 });
 
 app.patch('/api/applications/:id', allowAction('updateApplicationStatus'), async (req, res) => {
-  const result = await mutateDb(db => {
+  const result = await mutateDb(async db => {
     const application = db.applications.find(item => item.id === req.params.id && item.companyId === req.user.companyId);
     if (!application) throw Object.assign(new Error('طلب القبول غير موجود'), { status: 404 });
     if (application.websiteSource?.readOnly) throw Object.assign(new Error('عدّل طلب الموقع من قسم طلبات الموقع للحفاظ على تطابق الحالة.'), { status: 409 });
@@ -5227,7 +5281,17 @@ app.patch('/api/applications/:id', allowAction('updateApplicationStatus'), async
     if (nextOfferType === 'Rejected' && !String(nextRejectionReason || '').trim()) {
       throw Object.assign(new Error('يجب كتابة سبب الرفض'), { status: 400 });
     }
-    Object.assign(application, req.body, {
+    if (application.websiteSource?.id) {
+      assertWebsiteWrites();
+      const catalog=await websiteClient.catalog();
+      const university=req.body.university || application.university,program=req.body.program || application.program;
+      const matches=catalog.programs.filter(row=>row.university === university && (row.department === program || row.title === program));
+      if(matches.length !== 1) throw Object.assign(new Error('اختر البرنامج بدرجته ولغته لتحديث الطلب.'),{status:409});
+      const crmDetails=Object.fromEntries(['applicationRefNo','portalUrl','portalUsername','offerType','offerConditions','rejectionReason'].filter(key=>req.body[key] !== undefined).map(key=>[key,req.body[key]]));
+      await websiteClient.request(`/crm/applications/${application.websiteSource.id}`,{method:'PATCH',body:{programId:matches[0].id,detailedStatus:websiteApplicationStatus(nextStatus),notes:req.body.notes ?? application.notes ?? '',intake:req.body.intake ?? application.intake ?? '',crmDetails}});
+    }
+    const editableFields=['university','program','country','status','intake','applicationRefNo','portalUrl','portalUsername','portalPassword','offerType','offerConditions','rejectionReason','assignedTo','notes'];
+    Object.assign(application, Object.fromEntries(editableFields.filter(key=>req.body[key]!==undefined).map(key=>[key,req.body[key]])), {
       offerType: nextOfferType,
       offerConditions: nextOfferType === 'Conditional Offer' ? String(nextOfferConditions || '').trim() : '',
       rejectionReason: nextOfferType === 'Rejected' ? String(nextRejectionReason || '').trim() : '',
@@ -5287,15 +5351,21 @@ app.patch('/api/applications/:id/follow-up/:stageId', allowAction('manageApplica
 });
 
 app.post('/api/applications/:id/documents', allowAction('uploadDocument'), upload.single('file'), async (req, res) => {
-  const storedFile = req.file ? await storeUploadedFile(req.file, { folder: 'applications' }) : null;
   if (!req.file) return res.status(400).json({ message: 'الملف مطلوب' });
-
-  const result = await mutateDb(db => {
+  const result = await mutateDb(async db => {
     const application = db.applications.find(item => item.id === req.params.id && item.companyId === req.user.companyId);
     if (!application) throw Object.assign(new Error('طلب القبول غير موجود'), { status: 404 });
     if (application.websiteSource?.readOnly) throw Object.assign(new Error('عدّل طلب الموقع من قسم طلبات الموقع للحفاظ على تطابق الحالة.'), { status: 409 });
 
     const documentType = req.body.type || 'Other';
+    let sourceDocument;
+    if(application.websiteSource?.id){
+      assertWebsiteWrites();
+      const aliases={Passport:'passport',Photo:'biometric-photo','High School Certificate':'latest-qualification',Transcript:'transcript','Language Certificate':'language-certificate',Other:'other'};
+      const form=new FormData();form.set('type',aliases[documentType] || documentType);form.set('file',new Blob([req.file.buffer],{type:req.file.mimetype}),req.file.originalname);
+      sourceDocument=await websiteClient.request(`/crm/applications/${application.websiteSource.id}/documents`,{method:'POST',body:form});
+    }
+    const storedFile=sourceDocument ? {fileName:sourceDocument.fileName,url:sourceDocument.filePath,size:sourceDocument.size,storageProvider:'study-birds'} : await storeUploadedFile(req.file,{folder:'applications'});
     const latestVersion = Math.max(
       0,
       ...(application.documents || [])
@@ -5318,6 +5388,7 @@ app.post('/api/applications/:id/documents', allowAction('uploadDocument'), uploa
       url: storedFile.url,
       size: storedFile.size,
       storageProvider: storedFile.storageProvider,
+      ...(sourceDocument ? {websiteDocumentId:sourceDocument._id,websiteVersion:sourceDocument.__v || 0} : {}),
       status: 'Pending Review',
       reviewNote: '',
       reviewedBy: '',
@@ -5340,8 +5411,8 @@ app.post('/api/applications/:id/documents', allowAction('uploadDocument'), uploa
 });
 
 app.patch('/api/applications/:appId/documents/:docId', allowAction('reviewDocument'), async (req, res) => {
-  const result = await mutateDb(db => {
-    const application = db.applications.find(item => item.id === req.params.appId);
+  const result = await mutateDb(async db => {
+    const application = db.applications.find(item => item.id === req.params.appId && item.companyId === req.user.companyId);
     if (!application) throw Object.assign(new Error('طلب القبول غير موجود'), { status: 404 });
     if (application.websiteSource?.readOnly) throw Object.assign(new Error('عدّل طلب الموقع من قسم طلبات الموقع للحفاظ على تطابق الحالة.'), { status: 409 });
     const document = application.documents.find(item => item.id === req.params.docId);
@@ -5349,6 +5420,13 @@ app.patch('/api/applications/:appId/documents/:docId', allowAction('reviewDocume
 
     if (req.body.status === 'Rejected' && !String(req.body.reviewNote || '').trim()) {
       throw Object.assign(new Error('يجب كتابة سبب رفض المستند'), { status: 400 });
+    }
+    if(document.websiteDocumentId){
+      assertWebsiteWrites();
+      const mapped={'Approved':'approved','Verified':'approved','Rejected':'rejected','Pending Review':'under-review'};
+      if(!mapped[req.body.status])throw Object.assign(new Error('حالة مراجعة غير مدعومة.'),{status:400});
+      const remote=await websiteClient.action('documents',document.websiteDocumentId,'review',{detailedStatus:mapped[req.body.status],reviewNote:req.body.reviewNote || '',version:document.websiteVersion || 0});
+      document.websiteVersion=remote.__v;
     }
     document.status = req.body.status || document.status;
     document.reviewNote = req.body.reviewNote ?? document.reviewNote;
@@ -5366,13 +5444,15 @@ app.patch('/api/applications/:appId/documents/:docId', allowAction('reviewDocume
 });
 
 app.delete('/api/applications/:appId/documents/:docId', allowAction('deleteDocument'), async (req, res) => {
-  await mutateDb(db => {
-    const application = db.applications.find(item => item.id === req.params.appId);
+  await mutateDb(async db => {
+    const application = db.applications.find(item => item.id === req.params.appId && item.companyId === req.user.companyId);
     if (!application) throw Object.assign(new Error('طلب القبول غير موجود'), { status: 404 });
     if (application.websiteSource?.readOnly) throw Object.assign(new Error('عدّل طلب الموقع من قسم طلبات الموقع للحفاظ على تطابق الحالة.'), { status: 409 });
     const index = application.documents.findIndex(item => item.id === req.params.docId);
     if (index < 0) throw Object.assign(new Error('المستند غير موجود'), { status: 404 });
-    const [document] = application.documents.splice(index, 1);
+    const document=application.documents[index];
+    if(document.websiteDocumentId){assertWebsiteWrites();await websiteClient.request(`/crm/applications/${application.websiteSource.id}/documents/${document.websiteDocumentId}`,{method:'DELETE'});}
+    application.documents.splice(index,1);
     const previousVersion = application.documents
       .filter(item => item.type === document.type)
       .sort((a, b) => Number(b.version || 1) - Number(a.version || 1))[0];
@@ -5709,7 +5789,7 @@ app.patch('/api/hr/employees/:id', allowRoles('admin', 'management', 'hr'), asyn
 });
 
 app.patch('/api/hr/employees/:id/lifecycle', allowAction('terminateEmployee'), async (req, res) => {
-  const result = await mutateDb(db => {
+  const result = await mutateDb(async db => {
     const employee = findScoped(db.employees, req.user.companyId, item => item.id === req.params.id);
     if (!employee) throw Object.assign(new Error('الموظف غير موجود'), { status: 404 });
 
@@ -5718,6 +5798,10 @@ app.patch('/api/hr/employees/:id/lifecycle', allowAction('terminateEmployee'), a
       throw Object.assign(new Error('إجراء غير صالح'), { status: 400 });
     }
 
+    if (employee.websiteSource?.id) {
+      assertWebsiteWrites();
+      await websiteClient.request(`/crm/accounts/${employee.websiteSource.id}`,{method:'PATCH',body:{isActive:action === 'reactivate'}});
+    }
     if (action === 'terminate') {
       employee.status = 'Terminated';
       employee.terminatedAt = now();
@@ -5749,6 +5833,10 @@ app.delete('/api/hr/employees/:id', allowAction('deleteEmployee'), async (req, r
     if (employeeIndex === -1) throw Object.assign(new Error('الموظف غير موجود'), { status: 404 });
 
     const employeeBeforeDelete = db.employees[employeeIndex];
+    if (employeeBeforeDelete.websiteSource?.id) {
+      assertWebsiteWrites();
+      await websiteClient.request(`/crm/accounts/${employeeBeforeDelete.websiteSource.id}`,{method:'DELETE'});
+    }
     const linkedUserIds = new Set(
       getScopedItems(db.users || [], companyId)
         .filter(
@@ -5820,8 +5908,8 @@ app.get('/api/invoices', async (req, res) => {
 });
 
 app.post('/api/invoices', allowAction('createInvoice'), async (req, res) => {
-  const result = await mutateDb(db => {
-    const student = db.students.find(item => item.id === req.body.studentId);
+  const result = await mutateDb(async db => {
+    const student = db.students.find(item => item.id === req.body.studentId && item.companyId === req.user.companyId);
     if (!student) throw Object.assign(new Error('الطالب مطلوب'), { status: 400 });
     const currency = sanitizeCurrency(req.body.currency);
     const serviceFee = money(req.body.serviceFee ?? req.body.commission);
@@ -5854,6 +5942,11 @@ app.post('/api/invoices', allowAction('createInvoice'), async (req, res) => {
       installments,
       createdAt: now()
     };
+    if(process.env.STUDY_BIRDS_ENABLED === 'true' && student.websiteSource?.id){
+      assertWebsiteWrites();
+      const remote=await websiteClient.request('/crm/invoices',{method:'POST',body:{studentId:student.websiteSource.id,companyId:req.user.companyId,recordId:invoice.number,invoiceNumber:invoice.number,description:invoice.description,amount:invoice.total,currency:invoice.currency,dueDate:invoice.dueDate}});
+      invoice.websiteSource={resource:'financials',id:remote._id,readOnly:false};
+    }
     db.invoices.unshift(invoice);
     activity(db, req.user, 'created', 'invoice', invoice.id, `تم إنشاء الفاتورة ${invoice.number} للطالب ${student.name}`);
     return enrichInvoice(db, invoice);
@@ -5864,7 +5957,7 @@ app.post('/api/invoices', allowAction('createInvoice'), async (req, res) => {
 
 app.post('/api/invoices/:id/payments', allowAction('recordPayment'), upload.single('attachment'), async (req, res) => {
   const attachment = req.file ? await storeUploadedFile(req.file, { folder: 'receipts' }) : null;
-  const result = await mutateDb(db => {
+  const result = await mutateDb(async db => {
     const invoice = db.invoices.find(item => item.id === req.params.id && item.companyId === req.user.companyId);
     if (!invoice) throw Object.assign(new Error('الفاتورة غير موجودة'), { status: 404 });
     if (invoice.websiteSource?.readOnly) throw Object.assign(new Error('فاتورة الموقع للعرض؛ تُدار دفعاتها من قسم طلبات الموقع.'), { status: 409 });
@@ -5927,6 +6020,11 @@ app.post('/api/invoices/:id/payments', allowAction('recordPayment'), upload.sing
         throw Object.assign(new Error('مبلغ الدفعة أكبر من رصيد القسط'), { status: 400 });
       }
     }
+    if(invoice.websiteSource?.id){
+      assertWebsiteWrites();
+      const remote=await websiteClient.request(`/crm/invoices/${invoice.websiteSource.id}`);
+      await websiteClient.request(`/crm/invoices/${invoice.websiteSource.id}/payments`,{method:'PATCH',body:{paidAmount:money(before.paid+amount),version:remote.__v}});
+    }
     db.payments.unshift(payment);
     const after = enrichInvoice(db, invoice);
     invoice.status = after.paid >= money(invoice.total) ? 'Paid' : 'Partial';
@@ -5961,7 +6059,9 @@ app.delete('/api/invoices/:id', allowAction('deleteInvoice'), async (req, res) =
     if (invoiceIndex === -1) throw Object.assign(new Error('الفاتورة غير موجودة'), { status: 404 });
     if (db.invoices[invoiceIndex].websiteSource?.readOnly) throw Object.assign(new Error('فاتورة الموقع مرتبطة للعرض ولا يمكن حذفها من هذا القسم.'), { status: 409 });
 
-    const [invoice] = db.invoices.splice(invoiceIndex, 1);
+    const invoice=db.invoices[invoiceIndex];
+    if(invoice.websiteSource?.id){assertWebsiteWrites();await websiteClient.request(`/crm/invoices/${invoice.websiteSource.id}`,{method:'DELETE'});}
+    db.invoices.splice(invoiceIndex,1);
     const removedPayments = db.payments.filter(item => item.invoiceId === invoice.id && item.companyId === req.user.companyId);
     db.payments = db.payments.filter(item => !(item.invoiceId === invoice.id && item.companyId === req.user.companyId));
 
@@ -5995,9 +6095,11 @@ app.delete('/api/payments/:id', allowRoles('admin', 'management'), async (req, r
   const result = await mutateDb(async db => {
     const index = db.payments.findIndex(item => item.id === req.params.id && item.companyId === req.user.companyId);
     if (index === -1) throw Object.assign(new Error('السند غير موجود'), { status: 404 });
-    const [payment] = db.payments.splice(index, 1);
-    if (payment.attachment) await removeUploadedFile(payment.attachment);
+    const payment=db.payments[index];
     const invoice = db.invoices.find(item => item.id === payment.invoiceId);
+    if(invoice?.websiteSource?.id){assertWebsiteWrites();const remote=await websiteClient.request(`/crm/invoices/${invoice.websiteSource.id}`);await websiteClient.request(`/crm/invoices/${invoice.websiteSource.id}/payments`,{method:'PATCH',body:{paidAmount:Math.max(0,money(enrichInvoice(db,invoice).paid-payment.amount)),version:remote.__v}});}
+    db.payments.splice(index,1);
+    if (payment.attachment) await removeUploadedFile(payment.attachment);
     if (invoice) {
       const after = enrichInvoice(db, invoice);
       invoice.status = after.computedStatus === 'Paid' ? 'Paid' : after.paid > 0 ? 'Partial' : 'Unpaid';

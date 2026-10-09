@@ -8,7 +8,7 @@ const statusLabels = { pending: 'بانتظار المعالجة', active: 'سا
 const stages = { visa: 'التأشيرة', travel: 'السفر', housing: 'السكن', arrival: 'الوصول', registration: 'التسجيل الجامعي', residence: 'الإقامة' };
 const numeric = new Set(['tuition', 'partnerTuition', 'price', 'durationDays', 'etaMinutes', 'fees', 'rating', 'sortOrder', 'amount']);
 const dates = new Set(['startDate', 'endDate', 'submittedAt', 'expectedCompletionDate', 'dueAt', 'studiesStartAt', 'appointmentDate', 'insuranceExpiresAt', 'eventDate', 'dueDate']);
-const flags = new Set(['featured', 'isPartnerInstitution', 'published', 'isPublished', 'leadCapturePromptEnabled']);
+const flags = new Set(['featured', 'isPartnerInstitution', 'published', 'isPublished', 'leadCapturePromptEnabled','active','isActive']);
 const actionPath = { visa: 'visa-case', journey: 'post-admission', assignment: 'assignment' };
 
 export function WebsiteFields({ form, setForm, fields, options = {}, disabled = false }) {
@@ -43,10 +43,11 @@ export default function WebsiteOperations({ resource, record, writesEnabled, edi
       else { keys = editFields; if (resource === 'financials' && !record._id) { const result = await api('/api/integrations/website/requests/students'); setAdvisors(result.rows || []); } if (['programs', 'universities', 'universityAccounts'].includes(resource)) setCatalog(await api('/api/integrations/website/catalog')); }
       const values = {};
       for (const key of keys) {
-        let value = source[key] ?? (flags.has(key) ? false : '');
+        let value = source[key] ?? (resource==='students' ? source.profile?.[key] : undefined) ?? (flags.has(key) ? false : '');
         if (['country', 'university'].includes(key) && typeof value === 'object') value = value._id;
         if (dates.has(key)) { const date = value ? new Date(value) : null; value = date && Number.isFinite(date.getTime()) ? new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16) : ''; }
         if (key === 'requiredDocuments') value = (source[key] || []).join('\n');
+        if (key === 'permissions') value = (source[key] || []).join('\n');
         values[key] = value;
       }
       if (statuses[next] && !values.status) values.status = statuses[next][0];
@@ -57,6 +58,7 @@ export default function WebsiteOperations({ resource, record, writesEnabled, edi
     event.preventDefault(); setBusy(true); setError('');
     try {
       const body = { ...form };
+      if (Object.hasOwn(body,'permissions')) body.permissions = body.permissions.split('\n').map(value=>value.trim()).filter(Boolean);
       for (const field of Object.keys(body)) if (dates.has(field)) body[field] = body[field] ? new Date(body[field]).toISOString() : null;
       if (kind === 'equivalency') body.requiredDocuments = body.requiredDocuments.split('\n').map(v => v.trim()).filter(Boolean);
       if (kind === 'insurance' || kind === 'equivalency') await api(`/api/integrations/website/students/${record._id}/${kind}`, { method: 'PUT', body: JSON.stringify(body) });
@@ -70,7 +72,7 @@ export default function WebsiteOperations({ resource, record, writesEnabled, edi
     {resource === 'students' && <><Button disabled={busy} variant="secondary" onClick={() => choose('insurance')}>التأمين</Button><Button disabled={busy} variant="secondary" onClick={() => choose('equivalency')}>معادلة الشهادات</Button></>}
     {actionResource === 'applications' && Object.entries({ assignment: 'تعيين المستشار', visa: 'التأشيرة', journey: 'ما بعد القبول' }).map(([key, title]) => <Button disabled={busy} variant="secondary" key={key} onClick={() => choose(key)}>{title}</Button>)}
     {resource === 'services' && <Button disabled={busy} variant="secondary" onClick={() => choose('driver')}>تفاصيل السائق</Button>}
-    {editFields.length > 0 && <Button disabled={busy} variant="secondary" onClick={() => choose('content')}>تحرير المحتوى</Button>}
+    {editFields.length > 0 && <Button disabled={busy} variant="secondary" onClick={() => choose('content')}>{['students','employees'].includes(resource) ? 'تحرير الحساب' : 'تحرير المحتوى'}</Button>}
   </div>{error && <p role="alert" className="website-error">{error}</p>}{notice && <p role="status">{notice}</p>}
     {kind && fields.length > 0 && <form onSubmit={save}><WebsiteFields form={form} setForm={setForm} fields={fields} options={options} disabled={busy || !writesEnabled} />
     {kind === 'visa' && <div><h4>متطلبات التأشيرة</h4>{(form.requirements || []).map((row, index) => <div className="website-toolbar" key={index}><input disabled={busy || !writesEnabled} value={row.label} placeholder="اسم المتطلب" onChange={e => setForm(current => ({ ...current, requirements: current.requirements.map((item, i) => i === index ? { ...item, label: e.target.value } : item) }))} /><label><input disabled={busy || !writesEnabled} type="checkbox" checked={row.done} onChange={e => setForm(current => ({ ...current, requirements: current.requirements.map((item, i) => i === index ? { ...item, done: e.target.checked } : item) }))} />مكتمل</label></div>)}<Button type="button" disabled={busy || !writesEnabled} variant="secondary" onClick={() => setForm(current => ({ ...current, requirements: [...current.requirements, { label: '', done: false }] }))}>إضافة متطلب</Button></div>}

@@ -1387,6 +1387,7 @@ export default function SettingsPage() {
 
       <Modal open={editOpen} onClose={() => setEditOpen(false)} title="تعديل المستخدم" subtitle={selectedUser ? `تحديث حساب ${selectedUser.name}` : ''} size="lg">
         <form className="form-grid" onSubmit={updateUser}>
+            {!selectedUser?.websiteAccountId && <Field label="معرّف حساب الموظف الموجود في الموقع (اختياري)" hint="اربط حسابًا موجودًا بنفس البريد دون تغيير بياناته أو كلمة مروره."><input pattern="[a-fA-F0-9]{24}" value={userForm.websiteAccountId || ''} onChange={event=>setUserForm({...userForm,websiteAccountId:event.target.value})} /></Field>}
           <Field label="الاسم"><input required value={userForm.name} onChange={event => setUserForm({ ...userForm, name: event.target.value })} /></Field>
           <Field label="البريد الإلكتروني"><input required type="email" value={userForm.email} onChange={event => setUserForm({ ...userForm, email: event.target.value })} /></Field>
           <Field label="الدور">
