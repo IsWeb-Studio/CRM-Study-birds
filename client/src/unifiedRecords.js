@@ -13,13 +13,21 @@ export function normalizeWebsiteRecord(resource, row) {
   if (resource === 'mail') return { ...base, id:`website:mail:${row.id}`, websiteSource:{resource:'mail',id:row.id,readOnly:true,record:row}, externalUserName:row.name || row.email, externalUserId:row.email, channelType:'email', contact:{name:row.name,email:row.email}, status:'open',priority:'medium',tags:[],assignedUserId:'',unreadCount:0,lastMessage:{text:row.subject || row.message},lastMessageAt:row.receivedAt || row.createdAt };
   return base;
 }
-export function mergeRecords(local, remote, resource) {
+export function mergeRecords(local, remote, resource, native = []) {
+  const byId = new Map(local.map(row => [row.id,row]));
+  for (const row of native) {
+    const existing = byId.get(row.id);
+    const stamp = row => [row.updatedAt || '',row.websiteSource?.syncedAt || ''].sort().at(-1);
+    if (!existing || stamp(row) > stamp(existing)) byId.set(row.id,row);
+  }
+  local = [...byId.values()];
   const remaining = new Map(remote.map(row => [row.websiteSource?.id, row]));
   const merged = local.map(row => {
     const source = row.websiteSource;
     const match = source?.resource === resource && remaining.get(source.id);
     if (!match) return row;
     remaining.delete(source.id);
+    if (source.nativeFeatures) return {...row,websiteSource:{...source,record:match.websiteSource.record}};
     if (source.readOnly === false) return {...row,...(resource === 'financials' ? {paid:match.paid,balance:match.balance,computedStatus:match.computedStatus} : resource === 'applications' ? {status:match.status} : {name:match.name,email:match.email}),websiteSource:{...match.websiteSource,readOnly:false}};
     return { ...row, ...match, id: row.id };
   });

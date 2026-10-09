@@ -1,3 +1,4 @@
+import StudentWorkspace from '../components/StudentWorkspace.jsx';
 import React, { useContext, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { FileText, GraduationCap, Mail, Phone, Receipt, Search, UserSquare2, WalletCards } from 'lucide-react';
@@ -76,7 +77,7 @@ export default function StudentsPage() {
     (sum, student) =>
       sum +
       (student.invoices || []).reduce((invoiceSum, invoice) => {
-        const paid = (invoice.payments || []).reduce((paymentSum, payment) => paymentSum + Number(payment.amount || 0), 0);
+        const paid = invoice.paid ?? (invoice.payments || []).reduce((paymentSum, payment) => paymentSum + Number(payment.amount || 0), 0);
         return invoiceSum + Math.max(0, Number(invoice.total || 0) - paid);
       }, 0),
     0
@@ -194,6 +195,7 @@ export default function StudentsPage() {
                 {!!selected.invoices?.length && user.role !== 'admissions' && <Button type="button" onClick={() => navigate(`/finance?invoiceId=${selected.invoices[0].id}`)}>المالية</Button>}
               </div>
 
+              {can(user,'createApplication') && !selected.websiteSource?.readOnly && <StudentWorkspace key={selected.id} student={selected} onSaved={refresh} />}
               <div className="student-section">
                 <div className="section-head">
                   <div>

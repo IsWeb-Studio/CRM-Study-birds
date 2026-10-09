@@ -30,8 +30,21 @@ export default function SectionWorkspace({ module, children }) {
       const next = {}, failed = [];
       if (version.current !== requestVersion) return;
       results.forEach((result, i) => { if (result.status === 'fulfilled') next[keys[i]] = ['messaging','mail'].includes(keys[i]) ? { rows:result.value } : result.value; else failed.push(`${status.resources.find(item => item.key === keys[i])?.label || (keys[i] === 'mail' ? 'البريد' : 'المحادثات')}: ${result.reason.message}`); });
+      Object.values(next).forEach(data => failed.push(...(data.relatedErrors || [])));
       if (['universities', 'programs', 'catalogManagement'].includes(module)) {
         try { const legacy = await api('/api/education-catalog?source=crm'); if (version.current === requestVersion) setLegacyCatalog(legacy); } catch (e) { failed.push(e.message); }
+      }
+      if (version.current !== requestVersion) return;
+      // Load the native section after source identities have been materialized.
+      const nativePaths = {students:'/api/students?page=1&limit=200', admissions:'/api/applications', finance:'/api/invoices', hr:'/api/hr'};
+      if (nativePaths[module]) {
+        try {
+          const native = await api(nativePaths[module]); const key = primary[module];
+          next[key] = {...next[key], nativePayload:native, nativeRows:module === 'students' ? native.items || [] : module === 'hr' ? native.employees || [] : native};
+          if (['admissions','finance'].includes(module)) next[key].nativeStudents = await api('/api/students');
+          if (module === 'admissions') next[key].nativeSettings = await api('/api/settings');
+        }
+        catch (error) {failed.push(error.message);}
       }
       if (version.current !== requestVersion) return;
       setRecords(current => ({ ...current, ...next })); setErrors(failed);

@@ -1,5 +1,5 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { useUnifiedRecords } from '../components/UnifiedSectionContext.jsx';
+import React, { useContext, useEffect, useMemo, useState } from 'react';
+import { UnifiedSectionContext, useUnifiedRecords } from '../components/UnifiedSectionContext.jsx';
 import SourceRecordActions from '../components/SourceRecordActions.jsx';
 import {
   AlertTriangle,
@@ -96,6 +96,7 @@ const payrollToCsv = rows => {
 
 export default function HR() {
   const { user } = useAuth();
+  const {records} = useContext(UnifiedSectionContext);
   const [localEmployees, setEmployees] = useState([]);
   const employees = useUnifiedRecords(localEmployees, 'employees');
   const [attendance, setAttendance] = useState([]);
@@ -124,6 +125,8 @@ export default function HR() {
   const canLogAttendance = can(user, 'logAttendance');
   const canTerminateEmployee = can(user, 'terminateEmployee');
   const canDeleteEmployee = can(user, 'deleteEmployee');
+
+  useEffect(()=>{const data=records.employees?.nativePayload;if(!data)return;setAttendance(data.attendance || []);setTargets(data.targets || []);setPayroll(data.payroll || []);setLeaveRequests(data.leaveRequests || []);if(!selectedEmployeeId && data.employees?.[0])setSelectedEmployeeId(data.employees[0].id);},[records.employees]);
 
   const load = () =>
     api('/api/hr')

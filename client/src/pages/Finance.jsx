@@ -1,3 +1,4 @@
+import InvoiceWorkspace from '../components/InvoiceWorkspace.jsx';
 import React, { useContext, useEffect, useMemo, useState } from 'react';
 import { UnifiedSectionContext, useUnifiedRecords } from '../components/UnifiedSectionContext.jsx';
 import SourceRecordActions from '../components/SourceRecordActions.jsx';
@@ -318,7 +319,7 @@ function ReceiptSheet({ payment, invoice }) {
 
 export default function Finance() {
   const { user } = useAuth();
-  const { writesEnabled } = useContext(UnifiedSectionContext);
+  const { writesEnabled,records } = useContext(UnifiedSectionContext);
   const [searchParams] = useSearchParams();
   const [localInvoices, setInvoices] = useState([]);
   const invoices = useUnifiedRecords(localInvoices, 'financials');
@@ -338,6 +339,8 @@ export default function Finance() {
   const canCreateInvoice = can(user, 'createInvoice');
   const canRecordPayment = can(user, 'recordPayment');
   const canDeleteInvoice = can(user, 'deleteInvoice');
+
+  useEffect(()=>{const source=records.financials;if(source?.nativeStudents)setStudents(source.nativeStudents.items || source.nativeStudents);},[records.financials]);
 
   const load = () =>
     Promise.all([api('/api/invoices'), api('/api/students')])
@@ -663,8 +666,8 @@ export default function Finance() {
                   </td>
                   <td>
                     <div className="table-actions">
-                      <SourceRecordActions record={invoice} />
-                      {!invoice.websiteSource && <Button variant="ghost" type="button" onClick={() => openHistoryModal(invoice)}><Eye /> السجل</Button>}
+                      {canCreateInvoice && invoice.websiteSource?.nativeFeatures && <InvoiceWorkspace invoice={invoice} onSaved={load} />}<SourceRecordActions record={invoice} />
+                      {!invoice.websiteSource?.readOnly && <Button variant="ghost" type="button" onClick={() => openHistoryModal(invoice)}><Eye /> السجل</Button>}
                       {invoice.balance > 0 && canRecordPayment && !invoice.websiteSource?.readOnly ? (
                         <Button variant="ghost" type="button" onClick={() => openPaymentModal(invoice)}><Plus /> تسجيل دفعة</Button>
                       ) : (

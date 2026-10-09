@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { AlertTriangle, CheckCircle2, ChevronDown, CircleDot, Clock3, Eye, EyeOff, File, FilePlus2, FileUp, GraduationCap, History, KeyRound, Link as LinkIcon, Save, Search, ShieldCheck, Trash2, UploadCloud, WalletCards } from 'lucide-react';
 import { api, formatDate, initials, resolveFileUrl } from '../api.js';
@@ -6,7 +6,7 @@ import { Badge, Button, Card, Field, Modal, Progress, Spinner, Toast } from '../
 import { useAuth } from '../auth.jsx';
 import { tr } from '../i18n.js';
 import { can } from '../permissions.js';
-import { useUnifiedRecords } from '../components/UnifiedSectionContext.jsx';
+import { UnifiedSectionContext, useUnifiedRecords } from '../components/UnifiedSectionContext.jsx';
 import SourceRecordActions from '../components/SourceRecordActions.jsx';
 
 const tone = status => (status.includes('Acceptance') ? 'green' : status.includes('Rejected') ? 'red' : status.includes('Submitted') || status.includes('Review') ? 'blue' : 'amber');
@@ -76,6 +76,7 @@ export default function Admissions() {
   const [searchParams] = useSearchParams();
   const [localApps, setApps] = useState([]);
   const apps = useUnifiedRecords(localApps, 'applications');
+  const {records} = useContext(UnifiedSectionContext);
   const [settings, setSettings] = useState(null);
   const [students, setStudents] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -104,6 +105,7 @@ export default function Admissions() {
   const canDeleteDocument = can(user, 'deleteDocument');
   const canManageFollowUp = can(user, 'manageApplicationFollowUp');
   useEffect(() => {
+    if (!selected && apps.length) {selectApplication(apps[0]); return;}
     if (!selected?.websiteSource) return;
     const fresh = apps.find(row => row.id === selected.id);
     if (fresh && fresh !== selected) setSelected(fresh);
@@ -135,6 +137,8 @@ export default function Admissions() {
       setDetailForm(null);
     }
   };
+
+  useEffect(()=>{const source=records.applications;if(source?.nativeStudents)setStudents(source.nativeStudents.items || source.nativeStudents);if(source?.nativeSettings)setSettings(source.nativeSettings);},[records.applications]);
 
   const load = () =>
     Promise.all([api('/api/applications'), api('/api/settings'), api('/api/students')])

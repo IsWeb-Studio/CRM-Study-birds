@@ -1,8 +1,9 @@
+import { materializeWebsiteRows } from './nativeRecords.js';
 import { createHash, randomUUID } from 'node:crypto';
 import { websiteResourceRoute } from './website.sections.js';
 
 const fail = (message, status = 400) => Object.assign(new Error(message), { status });
-const requestTypes = ['applications', 'services', 'housing', 'arrival', 'consultations', 'scholarships', 'support', 'agencies', 'verification', 'payouts', 'events', 'parents', 'financials'];
+const requestTypes = ['students', 'employees', 'applications', 'services', 'housing', 'arrival', 'consultations', 'scholarships', 'support', 'agencies', 'verification', 'payouts', 'events', 'parents', 'financials'];
 const websiteId = id => { if (!/^[a-f\d]{24}$/i.test(id || '')) throw fail('معرّف الموقع غير صالح.'); return id; };
 const name = row => row?.student?.name || row?.agent?.name || row?.partner?.name || row?.parent?.name || row?.name || 'طلب موقع';
 const value = input => typeof input === 'string' ? input : input?.name || input?.title || '';
@@ -104,7 +105,7 @@ export function createWebsiteWorkflow({ client, readDb, mutateDb }) {
       for (const resource of resources) {
         try {
           const data = await client.resource(resource);
-          const result = await mutateDb(db => observeWebsiteRows(db, companyId, resource, data.rows));
+          const result = await mutateDb(db => { const observed = observeWebsiteRows(db, companyId, resource, data.rows); materializeWebsiteRows(db, companyId, resource, data.rows); return observed; });
           results.push({ resource, ok: true, ...result });
         } catch (error) { results.push({ resource, ok: false, message: error.message }); }
       }
@@ -125,7 +126,7 @@ export function createWebsiteWorkflow({ client, readDb, mutateDb }) {
       remote = data.rows.find(row => row._id === id);
     }
     if (!remote) throw fail('السجل غير موجود ضمن البيانات المتاحة.', 404);
-    return mutateDb(db => linkWebsiteRecord(db, companyId, resource, remote, actorId));
+    return mutateDb(db => { const link = linkWebsiteRecord(db, companyId, resource, remote, actorId); materializeWebsiteRows(db, companyId, resource, [remote], actorId); return link; });
   }
   return { synchronize, link };
 }

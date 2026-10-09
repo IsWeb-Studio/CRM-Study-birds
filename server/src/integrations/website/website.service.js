@@ -1,3 +1,4 @@
+import { materializeWebsiteRows, nativeResources } from './nativeRecords.js';
 import { randomUUID } from 'node:crypto';
 import { canOpenModule } from '../../auth.js';
 import { resourceModules, websiteSections } from './website.sections.js';
@@ -266,7 +267,17 @@ export function mountWebsiteRoutes(app, { allowModule, allowAction, client, read
     res.set('Cache-Control', 'no-store');
     res.json(await client.attachment(req.params.kind, req.params.id));
   }));
-  app.get('/api/integrations/website/requests/:resource', sectionAccess(req => req.params.resource), wrap(async (req, res) => res.json(await client.resource(req.params.resource))));
+  app.get('/api/integrations/website/requests/:resource', sectionAccess(req => req.params.resource), wrap(async (req, res) => {
+    const data = await client.resource(req.params.resource);
+    const relatedKeys = req.params.resource === 'students' ? ['applications','financials'].filter(key => allowed(req.user,key)) : [];
+    const related = await Promise.allSettled(relatedKeys.map(key => client.resource(key)));
+    if (nativeResources[req.params.resource]) await mutateDb(db => {
+      materializeWebsiteRows(db, req.user.companyId, req.params.resource, data.rows, req.user.sub);
+      related.forEach((result,index) => {if(result.status === 'fulfilled') materializeWebsiteRows(db,req.user.companyId,relatedKeys[index],result.value.rows,req.user.sub);});
+    });
+    data.relatedErrors = related.flatMap((result,index) => result.status === 'rejected' ? [`${websiteResources[relatedKeys[index]].label}: ${result.reason.message}`] : []);
+    res.json(data);
+  }));
   app.post('/api/integrations/website/content/:resource/:id/delete',sectionAccess(req=>req.params.resource),writeAccess,wrap(async(req,res)=>res.json(await remoteWrite(req,'content-delete',()=>client.deleteResource(req.params.resource,req.params.id)))));
   app.get('/api/integrations/website/requests/:resource/:id', sectionAccess(req => req.params.resource), wrap(async (req, res) => res.json(await client.detail(req.params.resource, req.params.id))));
   app.post('/api/integrations/website/requests/:resource/:id/:action', sectionAccess(req => req.params.resource), writeAccess, wrap(async (req, res) => {

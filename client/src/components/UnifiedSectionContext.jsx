@@ -3,7 +3,7 @@ import { normalizeWebsiteRecord, mergeRecords } from '../unifiedRecords.js';
 export const UnifiedSectionContext = createContext({ records: {}, refresh: () => {}, ready: false });
 export function useUnifiedRecords(local, resource) {
   const { records } = useContext(UnifiedSectionContext);
-  return useMemo(() => mergeRecords(local, (records[resource]?.rows || []).map(row => normalizeWebsiteRecord(resource, row)), resource), [local, records, resource]);
+  return useMemo(() => mergeRecords(local, (records[resource]?.rows || []).map(row => normalizeWebsiteRecord(resource, row)), resource, records[resource]?.nativeRows || []), [local, records, resource]);
 }
 export function useUnifiedCatalog(local) {
   const universities = useUnifiedRecords(local.universities || [], 'universities');

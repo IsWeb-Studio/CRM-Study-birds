@@ -1,6 +1,9 @@
+import {mountInvoiceWorkspace} from './integrations/website/invoiceWorkspace.js';
+import {mountStudentWorkspace} from './integrations/website/studentWorkspace.js';
 import 'dotenv/config';
 import { createWebsiteClient, mountWebsiteRoutes, websiteConfig } from './integrations/website/website.service.js';
 import { staffAccount, provisionAccount, assertWebsiteWrites, archiveLegacyCatalog, replaceLegacyCatalog, mountAccountBridge,websiteApplicationStatus,accountIdentity } from './integrations/website/accountBridge.js';
+import { invoicePaidAmount } from './integrations/website/nativeFinance.js';
 import {mountWebsiteSso} from './integrations/website/websiteSso.js';
 import { mountWebsiteWorkflow, mountWebsiteEmail, startWebsitePolling } from './integrations/website/website.workflow.js';
 const websiteClient = createWebsiteClient();
@@ -1458,7 +1461,7 @@ function enrichInvoice(db, invoice) {
   const application = applications.find(item => item.studentId === invoice.studentId) || null;
   const consultant = student?.consultantId ? employees.find(item => item.id === student.consultantId) || null : null;
   const financials = summarizeInvoiceFinancials(invoice);
-  const paid = invoice.websiteSource?.readOnly ? money(invoice.websiteSource.paid) : payments.reduce((sum, payment) => sum + money(payment.amount), 0);
+  const paid = invoicePaidAmount(invoice, payments);
   const balance = Math.max(0, financials.total - paid);
   const installments = sanitizeInstallments(invoice.installments).map(installment => {
     const matchingPayments = payments.filter(payment => payment.installmentId === installment.id);
@@ -1875,7 +1878,7 @@ function findUserByEmployee(db, employeeId, companyId) {
   return findScoped(
     db.users,
     companyId,
-    item => item.id === employee.linkedUserId || item.email?.toLowerCase() === employee.email?.toLowerCase()
+    item => item.id === employee.linkedUserId || !employee.websiteSource && item.email?.toLowerCase() === employee.email?.toLowerCase()
   ) || null;
 }
 
@@ -1885,7 +1888,7 @@ function syncEmployeeRecordForUser(db, user) {
   let employee = findScoped(
     db.employees,
     user.companyId,
-    item => item.linkedUserId === user.id || item.email?.toLowerCase() === user.email?.toLowerCase()
+    item => item.linkedUserId === user.id || !item.websiteSource && item.email?.toLowerCase() === user.email?.toLowerCase()
   );
 
   if (!employee) {
@@ -2170,7 +2173,7 @@ function buildApplicationState(application, settings) {
 function computeApplicationFeeStatus(db, companyId, studentId) {
   const invoices = getScopedItems(db.invoices, companyId).filter(invoice => invoice.studentId === studentId);
   if (!invoices.length) return 'Unpaid';
-  const hasPayment = getScopedItems(db.payments, companyId).some(payment => invoices.some(invoice => invoice.id === payment.invoiceId) && money(payment.amount) > 0);
+  const hasPayment = invoices.some(invoice => enrichInvoice(db, invoice).paid > 0);
   return hasPayment ? 'Paid' : 'Unpaid';
 }
 
@@ -3339,7 +3342,7 @@ if (process.env.STUDY_BIRDS_ENABLED === 'true') {
   }
 }
 
-app.get('/api/health', (_req, res) => res.json({ status: 'ok', time: now(), websiteIntegration: 5, buildCommit: process.env.RENDER_GIT_COMMIT || process.env.VERCEL_GIT_COMMIT_SHA || null }));
+app.get('/api/health', (_req, res) => res.json({ status: 'ok', time: now(), websiteIntegration: 6, buildCommit: process.env.RENDER_GIT_COMMIT || process.env.VERCEL_GIT_COMMIT_SHA || null }));
 
 app.post('/api/auth/login', async (req, res) => {
   const { email, password } = req.body || {};
@@ -3572,6 +3575,8 @@ app.use('/api', requireAuth, async (req, res, next) => {
 
 mountWebsiteRoutes(app, { allowModule, allowAction, client: websiteClient, readDb, mutateDb });
 mountAccountBridge(app, {client:websiteClient,allowAction,allowModule,readDb,mutateDb});
+mountStudentWorkspace(app,{allowAction,allowModule,readDb,mutateDb});
+mountInvoiceWorkspace(app,{allowAction,allowModule,mutateDb});
 const websiteWorkflow = mountWebsiteWorkflow(app, { allowModule, allowRoles, client: websiteClient, readDb, mutateDb });
 
 app.get('/api/me', async (req, res) => {
@@ -4075,8 +4080,8 @@ app.get('/api/dashboard', async (req, res) => {
   const won = leads.filter(item => item.stage === 'Enrolled').length;
   const active = leads.filter(item => !['Lost', 'Enrolled'].includes(item.stage)).length;
   const invoiceTotal = invoices.reduce((sum, invoice) => sum + money(invoice.total), 0);
-  const paidTotal = payments.reduce((sum, payment) => sum + money(payment.amount), 0);
-  const pendingDocs = applications.filter(item => item.documentProgress < 100).length;
+  const paidTotal = invoices.reduce((sum, invoice) => sum + enrichInvoice(db,invoice).paid, 0);
+  const pendingDocs = applications.filter(item => computeApplicationDocumentState(item,db.settings).documentProgress < 100).length;
 
   const consultantStats = employees
     .filter(employee => employee.department === 'Consultancy')
@@ -4146,7 +4151,7 @@ app.get('/api/settings', async (_req, res) => {
       const employee = findScoped(
         db.employees,
         companyId,
-        item => item.linkedUserId === user.id || item.email?.toLowerCase() === user.email?.toLowerCase()
+        item => item.linkedUserId === user.id || !item.websiteSource && item.email?.toLowerCase() === user.email?.toLowerCase()
       );
       return employee ? { ...employee, linkedUserId: user.id, name: user.name, email: user.email, department: user.department } : null;
     })
@@ -5173,13 +5178,14 @@ app.get('/api/students', allowModule('students'), async (req, res) => {
     : [];
   const paidInvoiceIds = new Set(payments.map(payment => payment.invoiceId));
 
+  const settings = (await readDb()).settings;
   const items = students.map(student => {
     const studentInvoices = invoices.filter(invoice => invoice.studentId === student.id);
-    const paymentStatus = studentInvoices.some(invoice => paidInvoiceIds.has(invoice.id)) ? 'Paid' : 'Unpaid';
+    const paymentStatus = studentInvoices.some(invoice => paidInvoiceIds.has(invoice.id) || Number(invoice.websiteSource?.paid || 0) > 0) ? 'Paid' : 'Unpaid';
     return {
       ...student,
-      applications: applications.filter(application => application.studentId === student.id).map(application => ({ ...application, applicationFeeStatus: paymentStatus })),
-      invoices: req.user.role === 'admissions' ? studentInvoices.map(() => ({ paymentStatus })) : studentInvoices
+      applications: applications.filter(application => application.studentId === student.id).map(application => ({ ...buildApplicationState(application,settings), applicationFeeStatus: paymentStatus })),
+      invoices: req.user.role === 'admissions' ? studentInvoices.map(() => ({ paymentStatus })) : studentInvoices.map(invoice => ({...invoice,paid:invoicePaidAmount(invoice,payments.filter(payment=>payment.invoiceId===invoice.id)),balance:Math.max(0,Number(invoice.total || 0)-invoicePaidAmount(invoice,payments.filter(payment=>payment.invoiceId===invoice.id)))}))
     };
   });
   res.json(paginatedResponse(items, total, pagination));
@@ -5252,6 +5258,7 @@ app.post('/api/applications', allowAction('createApplication'), async (req, res)
       if (matches.length !== 1) throw Object.assign(new Error('اختر برنامجًا محددًا بدرجته ولغته من دليل الموقع.'),{status:409});
       const remote=await websiteClient.request('/crm/applications',{method:'POST',body:{studentId:student.websiteSource.id,programId:matches[0].id,notes:application.notes,intake:application.intake}});
       application.websiteSource={resource:'applications',id:remote._id,readOnly:false};
+      application.websiteSource.programId=matches[0].id;
       const existing=db.applications.find(row=>row.companyId===req.user.companyId && row.websiteSource?.resource==='applications' && row.websiteSource.id===remote._id);
       if(existing)return {...buildApplicationState(existing,db.settings),student};
     }
@@ -5285,7 +5292,8 @@ app.patch('/api/applications/:id', allowAction('updateApplicationStatus'), async
       assertWebsiteWrites();
       const catalog=await websiteClient.catalog();
       const university=req.body.university || application.university,program=req.body.program || application.program;
-      const matches=catalog.programs.filter(row=>row.university === university && (row.department === program || row.title === program));
+      const sameProgram = university === application.university && program === application.program;
+      const matches=catalog.programs.filter(row=>sameProgram && application.websiteSource.programId ? row.id === application.websiteSource.programId : row.university === university && (row.department === program || row.title === program));
       if(matches.length !== 1) throw Object.assign(new Error('اختر البرنامج بدرجته ولغته لتحديث الطلب.'),{status:409});
       const crmDetails=Object.fromEntries(['applicationRefNo','portalUrl','portalUsername','offerType','offerConditions','rejectionReason'].filter(key=>req.body[key] !== undefined).map(key=>[key,req.body[key]]));
       await websiteClient.request(`/crm/applications/${application.websiteSource.id}`,{method:'PATCH',body:{programId:matches[0].id,detailedStatus:websiteApplicationStatus(nextStatus),notes:req.body.notes ?? application.notes ?? '',intake:req.body.intake ?? application.intake ?? '',crmDetails}});
@@ -5314,8 +5322,6 @@ app.patch('/api/applications/:id/follow-up/:stageId', allowAction('manageApplica
   const result = await mutateDb(db => {
     const application = db.applications.find(item => item.id === req.params.id && item.companyId === req.user.companyId);
     if (!application) throw Object.assign(new Error('طلب القبول غير موجود'), { status: 404 });
-    if (application.websiteSource?.readOnly) throw Object.assign(new Error('عدّل طلب الموقع من قسم طلبات الموقع للحفاظ على تطابق الحالة.'), { status: 409 });
-
     const workflowState = computeApplicationWorkflowState(application, db.settings);
     const stage = (workflowState.effectiveFollowUpStages || []).find(item => item.id === req.params.stageId);
     if (!stage) throw Object.assign(new Error('مرحلة المتابعة غير موجودة'), { status: 404 });
@@ -5649,10 +5655,11 @@ app.post('/api/employees', allowAction('createEmployee'), async (req, res) => {
 
 app.post('/api/attendance', allowAction('logAttendance'), async (req, res) => {
   const result = await mutateDb(db => {
-    const employee = db.employees.find(item => item.id === req.body.employeeId);
+    const employee = db.employees.find(item => item.id === req.body.employeeId && item.companyId === req.user.companyId);
     if (!employee) throw Object.assign(new Error('الموظف غير موجود'), { status: 404 });
     const record = {
       id: randomUUID(),
+      companyId:req.user.companyId,
       employeeId: employee.id,
       date: req.body.date || todayKey(),
       checkIn: req.body.checkIn || '',
@@ -5687,7 +5694,7 @@ app.get('/api/hr', allowModule('hr'), async (req, res) => {
       const employee = findScoped(
         db.employees,
         companyId,
-        item => item.linkedUserId === user.id || item.email?.toLowerCase() === user.email?.toLowerCase()
+        item => item.linkedUserId === user.id || !item.websiteSource && item.email?.toLowerCase() === user.email?.toLowerCase()
       );
       if (!employee) return null;
       return {
@@ -5702,6 +5709,9 @@ app.get('/api/hr', allowModule('hr'), async (req, res) => {
       };
     })
     .filter(Boolean);
+  for (const employee of getScopedItems(db.employees, companyId)) {
+    if (employee.websiteSource?.nativeFeatures && !employees.some(row => row.id === employee.id)) employees.push({...employee,documents:employee.documents || [],targetSnapshot:targetRows.find(row=>row.employeeId===employee.id) || null,payrollSnapshot:payrollRows.find(row=>row.employeeId===employee.id) || null});
+  }
   const visibleEmployeeIds = new Set(employees.map(item => item.id));
   const attendance = getScopedItems(db.attendance, companyId).map(item => ({ ...item, employee: db.employees.find(employee => employee.id === item.employeeId) || null }));
   const leaveRequests = getScopedItems(db.leaveRequests || [], companyId).sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
@@ -5781,6 +5791,7 @@ app.patch('/api/hr/employees/:id', allowRoles('admin', 'management', 'hr'), asyn
     employee.currentDeductions = Number(payload.currentDeductions ?? employee.currentDeductions ?? 0);
     employee.currentAdvances = Number(payload.currentAdvances ?? employee.currentAdvances ?? 0);
     employee.annualLeaveBalance = Number(payload.annualLeaveBalance ?? employee.annualLeaveBalance ?? 21);
+    employee.updatedAt=now();
     activity(db, req.user, 'updated', 'employee-hr', employee.id, `تم تحديث بيانات HR للموظف ${employee.name}`);
     return employee;
   });
@@ -5807,7 +5818,7 @@ app.patch('/api/hr/employees/:id/lifecycle', allowAction('terminateEmployee'), a
       employee.terminatedAt = now();
       employee.terminatedBy = req.user.name;
       employee.liveStatus = 'offline';
-      const linkedUser = findScoped(db.users, req.user.companyId, item => item.id === employee.linkedUserId || item.email?.toLowerCase() === employee.email?.toLowerCase());
+      const linkedUser = findScoped(db.users, req.user.companyId, item => item.id === employee.linkedUserId || !employee.websiteSource && item.email?.toLowerCase() === employee.email?.toLowerCase());
       if (linkedUser && linkedUser.role !== 'admin') linkedUser.isActive = false;
       activity(db, req.user, 'updated', 'employee-lifecycle', employee.id, `تم إنهاء خدمة الموظف ${employee.name}`);
     } else {
@@ -5815,7 +5826,7 @@ app.patch('/api/hr/employees/:id/lifecycle', allowAction('terminateEmployee'), a
       employee.reactivatedAt = now();
       employee.reactivatedBy = req.user.name;
       employee.liveStatus ||= 'available';
-      const linkedUser = findScoped(db.users, req.user.companyId, item => item.id === employee.linkedUserId || item.email?.toLowerCase() === employee.email?.toLowerCase());
+      const linkedUser = findScoped(db.users, req.user.companyId, item => item.id === employee.linkedUserId || !employee.websiteSource && item.email?.toLowerCase() === employee.email?.toLowerCase());
       if (linkedUser && linkedUser.role !== 'admin') linkedUser.isActive = true;
       activity(db, req.user, 'updated', 'employee-lifecycle', employee.id, `تمت إعادة تفعيل الموظف ${employee.name}`);
     }
@@ -5844,7 +5855,7 @@ app.delete('/api/hr/employees/:id', allowAction('deleteEmployee'), async (req, r
             item.role !== 'admin' &&
             (
               item.id === employeeBeforeDelete.linkedUserId ||
-              item.email?.toLowerCase() === employeeBeforeDelete.email?.toLowerCase()
+              !employeeBeforeDelete.websiteSource && item.email?.toLowerCase() === employeeBeforeDelete.email?.toLowerCase()
             )
         )
         .map(item => item.id)
@@ -5967,6 +5978,7 @@ app.post('/api/invoices/:id/payments', allowAction('recordPayment'), upload.sing
     if (amount > before.balance) throw Object.assign(new Error('مبلغ الدفعة أكبر من المتبقي على الفاتورة'), { status: 400 });
     const installmentId = req.body.installmentId || '';
     const currency = sanitizeCurrency(req.body.currency || invoice.currency);
+    if(invoice.websiteSource?.id && currency !== invoice.currency)throw Object.assign(new Error('عملة السند يجب أن تطابق عملة الفاتورة المرتبطة.'),{status:400});
     const student = db.students.find(item => item.id === invoice.studentId) || null;
     const application = db.applications.find(item => item.studentId === invoice.studentId) || null;
     const consultant = student?.consultantId ? db.employees.find(item => item.id === student.consultantId) || null : null;
@@ -6023,8 +6035,14 @@ app.post('/api/invoices/:id/payments', allowAction('recordPayment'), upload.sing
     if(invoice.websiteSource?.id){
       assertWebsiteWrites();
       const remote=await websiteClient.request(`/crm/invoices/${invoice.websiteSource.id}`);
-      await websiteClient.request(`/crm/invoices/${invoice.websiteSource.id}/payments`,{method:'PATCH',body:{paidAmount:money(before.paid+amount),version:remote.__v}});
+      const remotePaid = remote.status === 'paid' ? Number(remote.amount || 0) : Number(remote.crmPaidAmount || 0)+Number(remote.walletCreditApplied || 0);
+      if (remotePaid !== before.paid || Number(remote.amount) !== before.total || remote.currency !== invoice.currency) throw Object.assign(new Error('تغير رصيد الفاتورة في الموقع؛ حدّث قبل تسجيل الدفعة.'),{status:409});
+      const saved = await websiteClient.request(`/crm/invoices/${invoice.websiteSource.id}/payments`,{method:'PATCH',body:{paidAmount:money(Number(remote.crmPaidAmount || 0)+amount),version:remote.__v}});
+      invoice.websiteSource.paid = Number(saved.crmPaidAmount || 0)+Number(saved.walletCreditApplied || 0);
+      invoice.websiteSource.crmPaidAmount = saved.crmPaidAmount;
+      invoice.websiteSource.version = saved.__v;
     }
+    invoice.updatedAt = now();
     db.payments.unshift(payment);
     const after = enrichInvoice(db, invoice);
     invoice.status = after.paid >= money(invoice.total) ? 'Paid' : 'Partial';
@@ -6097,7 +6115,12 @@ app.delete('/api/payments/:id', allowRoles('admin', 'management'), async (req, r
     if (index === -1) throw Object.assign(new Error('السند غير موجود'), { status: 404 });
     const payment=db.payments[index];
     const invoice = db.invoices.find(item => item.id === payment.invoiceId);
-    if(invoice?.websiteSource?.id){assertWebsiteWrites();const remote=await websiteClient.request(`/crm/invoices/${invoice.websiteSource.id}`);await websiteClient.request(`/crm/invoices/${invoice.websiteSource.id}/payments`,{method:'PATCH',body:{paidAmount:Math.max(0,money(enrichInvoice(db,invoice).paid-payment.amount)),version:remote.__v}});}
+    if(invoice?.websiteSource?.id){
+      assertWebsiteWrites();const remote=await websiteClient.request(`/crm/invoices/${invoice.websiteSource.id}`);
+      if(Number(remote.crmPaidAmount || 0)<payment.amount)throw Object.assign(new Error('تغير رصيد الموقع؛ راجع الدفعات قبل حذف السند.'),{status:409});
+      const saved=await websiteClient.request(`/crm/invoices/${invoice.websiteSource.id}/payments`,{method:'PATCH',body:{paidAmount:money(Number(remote.crmPaidAmount || 0)-payment.amount),version:remote.__v}});
+      invoice.websiteSource.paid=Number(saved.crmPaidAmount || 0)+Number(saved.walletCreditApplied || 0);invoice.websiteSource.crmPaidAmount=saved.crmPaidAmount;
+    }
     db.payments.splice(index,1);
     if (payment.attachment) await removeUploadedFile(payment.attachment);
     if (invoice) {
