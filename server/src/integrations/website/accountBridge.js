@@ -2,7 +2,7 @@ import {createHash,randomUUID} from 'node:crypto';
 import {websiteApplicationStatuses} from './applicationStatuses.js';
 const fail = (message,status=400) => Object.assign(new Error(message),{status});
 const staff = {
-  consultant:{employeeRole:'educational_consultant',permissions:['students','applications','consultations']},
+  consultant:{employeeRole:'educational_consultant',permissions:['students','applications','consultations','support']},
   admissions:{employeeRole:'admission',permissions:['students','applications','student-documents']},
   finance:{employeeRole:'finance',permissions:['student-financials']},
   reception:{employeeRole:'travel_coordinator',permissions:['student-arrivals']},

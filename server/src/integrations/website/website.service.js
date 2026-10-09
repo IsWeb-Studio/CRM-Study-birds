@@ -1,5 +1,7 @@
+import {conversationKey,updateConversationWorkspace} from './conversationWorkspace.js';
+import {loadCatalogSnapshot} from './catalogSnapshot.js';
 import { materializeWebsiteRows, nativeResources } from './nativeRecords.js';
-import { randomUUID } from 'node:crypto';
+import { randomUUID,createHash } from 'node:crypto';
 import { canOpenModule } from '../../auth.js';
 import {canWriteResource} from './writePolicy.js';
 import multer from 'multer';
@@ -47,8 +49,8 @@ export const websiteResources = {
   ourStory: { label: 'من نحن', path: '/admin/our-story', singleton: true, editFields: ['heroEyebrow', 'heroTitle', 'heroBody', 'heroImage', 'heroCtaText', 'heroCtaLink', 'storyTitle', 'storyBody', 'storyImage', 'missionTitle', 'missionBody', 'visionTitle', 'visionBody'] },
   siteSettings: { label: 'إعدادات الموقع', path: '/admin/site-settings', singleton: true, editFields: ['contactEmail', 'whatsappUrl', 'facebookUrl', 'instagramUrl', 'tiktokUrl', 'britishMembershipUrl', 'supportHours', 'officeLocations', 'leadCapturePromptEnabled'] },
   countries: { label: 'إدارة الدول', path: '/admin/countries', editFields: ['name', 'code', 'heroTitle', 'heroSubtitle', 'heroImage', 'description'] },
-  universities: { label: 'إدارة الجامعات', path: '/universities', detail: '/universities', editFields: ['name', 'country', 'city', 'language', 'overview', 'logo', 'campusImages','studentCount','specialtyCount','ranking','tuitionRange','featured', 'isPartnerInstitution'] },
-  programs: { label: 'إدارة البرامج', path: '/programs', detail: '/programs', editFields: ['title', 'university', 'degreeLevel', 'fieldOfStudy', 'language', 'duration', 'tuition', 'partnerTuition', 'summary', 'requiredDocumentTypes', 'featured'] },
+  universities: { label: 'إدارة الجامعات', path: '/universities', detail: '/universities', editFields: ['name', 'country', 'city', 'language', 'overview', 'logo', 'campusImages','studentCount','specialtyCount','ranking','tuitionRange','requiredDocuments','accreditations','articleTitle','articleHeadings','articleBodies','featured', 'isPartnerInstitution'] },
+  programs: { label: 'إدارة البرامج', path: '/programs', detail: '/programs', editFields: ['title', 'university', 'degreeLevel', 'fieldOfStudy', 'language', 'duration', 'tuition', 'partnerTuition', 'summary','fieldsOfStudy','requirements','careerOpportunities', 'requiredDocumentTypes', 'featured'] },
   scholarshipCatalog: {label:'دليل المنح',path:'/scholarships/manage',createPath:'/scholarships',editPath:'/scholarships',deletePath:'/scholarships',editFields:['title','university','country','degree','funding','eligibility','deadline','active']},
   contentServices: { label: 'محتوى الخدمات', path: '/admin/our-services', editFields: ['title', 'description', 'detailBody', 'price', 'durationDays', 'image'] },
   faqs: { label: 'الأسئلة الشائعة', path: '/admin/faqs', editFields: ['question', 'answer'] },
@@ -77,8 +79,11 @@ export function createWebsiteClient({ config = () => websiteConfig(), fetchImpl 
   let cachedCatalog;
   let cacheUntil = 0;
   let catalogFlight;
+  const listCache=new Map(),listFlights=new Map();
+  let generation=0;
   async function request(path, { method = 'GET', body } = {}) {
     const c = config();
+    if(method!=='GET'){generation++;listCache.clear();cachedCatalog=null;cacheUntil=0;}
     if (!c.enabled || !c.ready) throw fail('ربط الموقع غير مفعّل أو رمز الاتصال غير مضبوط.', 503);
     if (!/^\/[a-z][a-z0-9/?=&._-]*$/i.test(path)) throw fail('مسار غير مسموح.');
     const multipart=body instanceof FormData;
@@ -92,10 +97,11 @@ export function createWebsiteClient({ config = () => websiteConfig(), fetchImpl 
     } catch { throw fail('تعذر الاتصال بالموقع. حاول مرة أخرى؛ لم تُغيّر بيانات CRM.', 502); }
     const data = await response.json().catch(() => null);
     if (!response.ok) throw fail(response.status === 401 ? 'انتهت صلاحية رمز الموقع؛ حدّثه على خادم CRM.' : response.status === 403 ? 'حساب اتصال الموقع لا يملك صلاحية هذا القسم.' : String(data?.message || 'فشل تنفيذ الإجراء على الموقع.'), response.status === 401 ? 502 : response.status >= 400 && response.status < 500 ? response.status : 502);
+    if(method!=='GET'){generation++;listCache.clear();cachedCatalog=null;cacheUntil=0;}
     if (data === null) throw fail('استجابة الموقع ليست JSON صالحًا.', 502);
     return data;
   }
-  async function list(path, collection) {
+  async function readList(path, collection) {
     const rows = [];
     for (let page = 1; page <= 500; page++) {
       const data = await request(`${path}${path.includes('?') ? '&' : '?'}page=${page}&limit=100`);
@@ -108,14 +114,31 @@ export function createWebsiteClient({ config = () => websiteConfig(), fetchImpl 
     }
     throw fail('القائمة تتجاوز حد القراءة؛ لم يتم اعتماد قائمة جزئية.', 502);
   }
+  async function list(path,collection){
+    const c=config();if(!c.enabled || !c.ready)throw fail('ربط الموقع غير مفعّل أو رمز الاتصال غير مضبوط.',503);
+    const key=JSON.stringify([c.baseUrl,createHash('sha256').update(c.token).digest('hex'),path,collection]),cached=listCache.get(key);
+    if(cached && cached.expires>Date.now())return structuredClone(cached.data);
+    const flightKey=JSON.stringify([key,generation]);
+    if(listFlights.has(flightKey))return structuredClone(await listFlights.get(flightKey));
+    const stamp=generation;
+    const flight=readList(path,collection).then(data=>{if(stamp===generation)listCache.set(key,{data,expires:Date.now()+15000});return data;});
+    listFlights.set(flightKey,flight);
+    try{return structuredClone(await flight);}finally{listFlights.delete(flightKey);}
+  }
   async function catalog(refresh = false) {
+    const c=config();if(!c.enabled || !c.ready)throw fail('ربط الموقع غير مفعّل أو رمز الاتصال غير مضبوط.',503);
+    if(refresh)listCache.clear();
     if (!refresh && cachedCatalog && Date.now() < cacheUntil) return cachedCatalog;
     if (catalogFlight) return catalogFlight;
     catalogFlight = (async () => {
-      const [countries, universities, programs, scholarships] = await Promise.all([list('/content/countries'), list('/universities'), list('/programs'),list('/scholarships/manage')]);
+      const results=await Promise.allSettled([list('/content/countries'),list('/universities'),list('/programs'),list('/scholarships/manage')]);
+      if(results.every(result=>result.status==='rejected'))throw results[0].reason;
+      const [countries,universities,programs,scholarships]=results.map(result=>result.status==='fulfilled'?result.value:{rows:[]});
+      const warnings=results.flatMap((result,index)=>result.status==='rejected'?[{resource:['countries','universities','programs','scholarships'][index],message:result.reason.message,status:result.reason.status}]:[]);
       const universityIndex = new Map(universities.rows.map(row => [row._id, row]));
       const name = value => typeof value === 'string' ? value : value?.ar || value?.en || '';
       const mapped = {
+        warnings, complete:!warnings.length,
         countries: countries.rows.map(row => ({ id: row._id, name: name(row.name), code: row.code || '' })),
         universities: universities.rows.map(row => ({ id: row._id, name: row.name, country: name(row.country?.name), city: row.city || '', logo: row.logo || '', website: row.website || '' })),
         programs: programs.rows.map(row => {
@@ -267,15 +290,25 @@ export function mountWebsiteRoutes(app, { allowModule, allowAction, client, read
     const catalog = await client.catalog(true);
     res.json({ connected: true, role: user.user?.role || user.role, countries: catalog.countries.length, universities: catalog.universities.length, programs: catalog.programs.length, checkedAt: catalog.fetchedAt });
   }));
-  app.get('/api/integrations/website/catalog', metadataAccess, wrap(async (_req, res) => res.json(await client.catalog())));
+  app.get('/api/integrations/website/catalog', metadataAccess, wrap(async (_req, res) => res.json(await loadCatalogSnapshot(client,readDb,mutateDb,_req.user.companyId))));
   app.get('/api/integrations/website/students/:id/:kind', sectionAccess('students'), wrap(async (req, res) => res.json(await client.studentService(req.params.id, req.params.kind))));
   app.put('/api/integrations/website/students/:id/:kind', sectionAccess('students'), writeAccess, wrap(async (req, res) => {
     if (process.env.STUDY_BIRDS_ALLOW_WRITES !== 'true') throw fail('تعديل الموقع غير مفعّل.', 403);
     res.json(await remoteWrite(req, 'student-service', () => client.studentService(req.params.id, req.params.kind, req.body)));
   }));
+  app.get('/api/integrations/website/support-assignees',sectionAccess('support'),wrap(async(req,res)=>res.json(await client.request('/crm/support-assignees'))));
   app.get('/api/integrations/website/consultation-advisors',sectionAccess('consultations'),wrap(async(req,res)=>res.json(await client.request('/consultations/staff/advisors'))));
   app.get('/api/integrations/website/applications/:id/:section', sectionAccess('applications'), wrap(async (req, res) => res.json(await client.section(req.params.id, req.params.section))));
-  app.get('/api/integrations/website/messaging/contacts', sectionAccess('support'), wrap(async (_req, res) => res.json(await client.request('/mobile-workspace/contacts'))));
+  app.get('/api/integrations/website/messaging/contacts',sectionAccess('support'),wrap(async(req,res)=>{
+    const contacts=await client.request('/mobile-workspace/contacts'),db=await readDb();
+    res.json(contacts.map(row=>({...row,crmMetadata:db.websiteConversationMetadata?.[conversationKey(req.user.companyId,row._id)] || {}})));
+  }));
+  app.post('/api/integrations/website/messaging/:id/manage',sectionAccess('support'),writeAccess,wrap(async(req,res)=>{
+    assertId(req.params.id);
+    const contacts=await client.request('/mobile-workspace/contacts');
+    if(!contacts.some(row=>row._id===req.params.id))throw fail('المحادثة غير متاحة لهذا الحساب.',404);
+    res.json(await mutateDb(db=>updateConversationWorkspace(db,req.user.companyId,req.params.id,req.body,req.user.sub)));
+  }));
   app.get('/api/integrations/website/messaging/:id', sectionAccess('support'), wrap(async (req, res) => { assertId(req.params.id); res.json(await client.request(`/mobile-workspace/messages?recipient=${req.params.id}`)); }));
   app.post('/api/integrations/website/messaging/:id', sectionAccess('support'), writeAccess, wrap(async (req, res) => {
     assertId(req.params.id);
@@ -292,13 +325,28 @@ export function mountWebsiteRoutes(app, { allowModule, allowAction, client, read
     res.json(await client.attachment(req.params.kind, req.params.id));
   }));
   app.get('/api/integrations/website/requests/:resource', sectionAccess(req => req.params.resource), wrap(async (req, res) => {
-    const data = await client.resource(req.params.resource);
+    let data;
+    const catalogResource=['countries','universities','programs','scholarshipCatalog','studyFields'].includes(req.params.resource);
+    const snapshotKey=JSON.stringify([req.user.companyId,req.params.resource]);
+    try{data=await client.resource(req.params.resource);}
+    catch(error){const saved=catalogResource && (await readDb()).websiteCatalogRows?.[snapshotKey];if(!saved || error.status===403)throw error;data={...saved.data,stale:true,warnings:[error.message]};}
+    if(catalogResource && !data.stale){
+      const digest=createHash('sha256').update(JSON.stringify(data.rows)).digest('hex');
+      if((await readDb()).websiteCatalogRows?.[snapshotKey]?.digest!==digest)await mutateDb(db=>{db.websiteCatalogRows ||= {};db.websiteCatalogRows[snapshotKey]={digest,data:structuredClone(data)};});
+    }
     const relatedKeys = req.params.resource === 'students' ? ['applications','financials'].filter(key => allowed(req.user,key)) : [];
     const related = await Promise.allSettled(relatedKeys.map(key => client.resource(key)));
-    if (nativeResources[req.params.resource]) await mutateDb(db => {
+    if (nativeResources[req.params.resource]) {
+      const snapshot=await readDb();
+      const digest=createHash('sha256').update(JSON.stringify([data.rows,related.map(result=>result.status==='fulfilled'?result.value.rows:null)])).digest('hex');
+      const stampKey=JSON.stringify([req.user.companyId,req.params.resource]);
+      if(snapshot.websiteMaterializationDigests?.[stampKey]!==digest)await mutateDb(db => {
+      db.websiteMaterializationDigests ||= {};
+      db.websiteMaterializationDigests[stampKey]=digest;
       materializeWebsiteRows(db, req.user.companyId, req.params.resource, data.rows, req.user.sub);
       related.forEach((result,index) => {if(result.status === 'fulfilled') materializeWebsiteRows(db,req.user.companyId,relatedKeys[index],result.value.rows,req.user.sub);});
     });
+    }
     data.relatedErrors = related.flatMap((result,index) => result.status === 'rejected' ? [`${websiteResources[relatedKeys[index]].label}: ${result.reason.message}`] : []);
     data.capabilities={edit:canWriteResource(req.user,req.params.resource,'edit'),create:canWriteResource(req.user,req.params.resource,'create'),delete:canWriteResource(req.user,req.params.resource,'delete'),upload:canWriteResource(req.user,req.params.resource,'upload')};
     data.actions=Object.fromEntries(Object.entries(data.actions || {}).filter(([key])=>canWriteResource(req.user,req.params.resource,key)));

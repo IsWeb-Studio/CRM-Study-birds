@@ -3,6 +3,7 @@ import { EyeOff, FileDown, Search, UserRound } from 'lucide-react';
 import { api, apiDownload, formatMoney } from '../api.js';
 import { Badge, Button, Card, Field, Spinner, Toast } from '../components/UI.jsx';
 import { useUnifiedCatalog } from '../components/UnifiedSectionContext.jsx';
+import UniversityDirectory from '../components/UniversityDirectory.jsx';
 import SourceRecordActions from '../components/SourceRecordActions.jsx';
 
 const defaultFilters = {
@@ -76,7 +77,7 @@ export default function UniversitiesPage() {
     let active = true;
     api('/api/education-catalog?source=crm')
       .then(result => {
-        if (active) setCatalog(result);
+        if (active) {setCatalog(result);if(result.stale)setToast({type:'error',message:'تعذر تحديث الدليل؛ المعروض آخر بيانات موقع محفوظة.'});}
       })
       .catch(error => {
         if (active) setToast({ type: 'error', message: error.message });
@@ -183,6 +184,7 @@ export default function UniversitiesPage() {
 
   return (
     <>
+      <UniversityDirectory universities={catalog.universities || []} />
       <Card className="settings-card field-full">
         <div className="section-head">
           <div>

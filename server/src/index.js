@@ -1,3 +1,4 @@
+import {loadCatalogSnapshot} from './integrations/website/catalogSnapshot.js';
 import {mountFinancialReconciliation} from './integrations/website/financialReconciliation.js';
 import {mountInvoiceWorkspace} from './integrations/website/invoiceWorkspace.js';
 import {mountStudentWorkspace} from './integrations/website/studentWorkspace.js';
@@ -3337,14 +3338,14 @@ await prepareDb();
 if (process.env.STUDY_BIRDS_ENABLED === 'true') {
   // Verify the canonical catalog before replacing the active legacy lists.
   let ready=false;
-  try {const health=await websiteClient.request('/health');if(health.crmIntegration!==1)throw Object.assign(new Error('Website integration API upgrade is required.'),{status:409});await websiteClient.catalog(true);ready=true;} catch(error) {console.error('Website catalog unavailable; legacy catalog was preserved.',{status:error.status});}
+  try {const health=await websiteClient.request('/health');if(health.crmIntegration!==1)throw Object.assign(new Error('Website integration API upgrade is required.'),{status:409});const catalog=await websiteClient.catalog(true);ready=catalog.complete!==false;} catch(error) {console.error('Website catalog unavailable; legacy catalog was preserved.',{status:error.status});}
   if(ready){
     await mutateDb(db => archiveLegacyCatalog(db));
     await mutateDb(db => { if (replaceLegacyCatalog(db)) updateEducationCatalogDerivedSettings(db); });
   }
 }
 
-app.get('/api/health', (_req, res) => res.json({ status: 'ok', time: now(), websiteIntegration: 7, buildCommit: process.env.RENDER_GIT_COMMIT || process.env.VERCEL_GIT_COMMIT_SHA || null }));
+app.get('/api/health', (_req, res) => res.json({ status: 'ok', time: now(), websiteIntegration: 8, buildCommit: process.env.RENDER_GIT_COMMIT || process.env.VERCEL_GIT_COMMIT_SHA || null }));
 
 app.post('/api/auth/login', async (req, res) => {
   const { email, password } = req.body || {};
@@ -4179,11 +4180,12 @@ app.get('/api/education-catalog', allowAnyModule('universities', 'programs', 'sc
   const db = await readDb();
   const websiteEnabled = process.env.STUDY_BIRDS_ENABLED === 'true';
   const useWebsiteCatalog = websiteEnabled && req.query.source !== 'crm';
-  const catalog = useWebsiteCatalog ? await websiteClient.catalog() : {...sanitizeEducationCatalog(db.educationCatalog || {}),universities:[],programs:[],scholarships:[]};
+  const catalog = useWebsiteCatalog ? await loadCatalogSnapshot(websiteClient,readDb,mutateDb,req.user.companyId) : {...sanitizeEducationCatalog(db.educationCatalog || {}),...(db.websiteCatalogSnapshots?.[req.user.companyId]?.catalog || {universities:[],programs:[],scholarships:[]})};
   const catalogLinks = buildEducationCatalogLinks(catalog);
   const effectiveCountries = getEffectiveCatalogCountries(catalog, catalogLinks);
   res.json({
     source: useWebsiteCatalog ? 'study-birds' : 'crm',
+    stale:Boolean(catalog.stale), warnings:catalog.warnings || [],
     summary: {
       countries: effectiveCountries.length,
       universities: Array.isArray(catalog.universities) ? catalog.universities.length : 0,

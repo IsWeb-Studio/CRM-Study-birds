@@ -1,3 +1,4 @@
+import {WebsiteFields} from './WebsiteOperations.jsx';
 import StudentWorkspace from '../components/StudentWorkspace.jsx';
 import React, { useContext, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
@@ -10,6 +11,7 @@ import { UnifiedSectionContext, useUnifiedRecords } from '../components/UnifiedS
 import {can} from '../permissions.js';
 import SourceRecordActions from '../components/SourceRecordActions.jsx';
 
+const profileFields=['englishFullName','passportNumber','dateOfBirth','gpa','bio','address','intake','nativeLanguage','currentEducation','currentEducationLevel','currentResidenceCountry','currentResidenceRegion','otherLanguages','targetCountries','parentInfo','emergencyContact','englishTest'];
 export default function StudentsPage() {
   const { user } = useAuth();
   const {refresh,writesEnabled} = useContext(UnifiedSectionContext);
@@ -20,7 +22,8 @@ export default function StudentsPage() {
   async function createStudent(event) {
     event.preventDefault();setCreateBusy(true);setError('');
     try {
-      const student = await api(linkTarget ? `/api/students/${linkTarget.id}/account` : '/api/students',{method:'POST',body:JSON.stringify(linkTarget ? accountId ? {accountId} : {password:form.password} : {name:form.name,email:form.email,password:form.password,profile:{phone:form.phone,nationality:form.nationality}})});
+      const profile=Object.fromEntries(['phone','nationality',...profileFields].filter(key=>form[key]!==undefined && form[key]!=='').map(key=>[key,['otherLanguages','targetCountries'].includes(key)?String(form[key]).split('\n').map(value=>value.trim()).filter(Boolean):key==='dateOfBirth'?new Date(form[key]).toISOString():form[key]]));
+      const student = await api(linkTarget ? `/api/students/${linkTarget.id}/account` : '/api/students',{method:'POST',body:JSON.stringify(linkTarget ? accountId ? {accountId} : {password:form.password} : {name:form.name,email:form.email,password:form.password,profile})});
       const data = await api('/api/students?page=1&limit=200');setStudents(data.items || []);setSelectedId(student.id);
       setCreateOpen(false);setForm({name:'',email:'',password:'',phone:'',nationality:''});refresh();
     } catch(e) {setError(e.message);} finally {setCreateBusy(false);}
@@ -93,7 +96,7 @@ export default function StudentsPage() {
           {['name','email','phone','nationality'].map(key=><Field key={key} label={{name:'الاسم',email:'البريد الإلكتروني',phone:'الهاتف',nationality:'الجنسية'}[key]}><input required={['name','email'].includes(key)} type={key === 'email' ? 'email' : 'text'} value={form[key]} onChange={e=>setForm({...form,[key]:e.target.value})} disabled={createBusy || Boolean(linkTarget)} /></Field>)}
           {linkTarget && <Field label="معرّف حساب الموقع الموجود (اختياري)" hint="لربط حساب موجود بنفس البريد؛ اتركه فارغًا لإنشاء حساب جديد."><input pattern="[a-fA-F0-9]{24}" value={accountId} onChange={e=>setAccountId(e.target.value)} disabled={createBusy} /></Field>}
           {!(linkTarget && accountId) && <Field label="كلمة المرور" hint="8 أحرف على الأقل؛ اخلط أحرفًا وأرقامًا ورموزًا."><input required minLength={8} type="password" autoComplete="new-password" value={form.password} onChange={e=>setForm({...form,password:e.target.value})} disabled={createBusy} /></Field>}
-          {error && <p role="alert">{error}</p>}<Button type="submit" disabled={createBusy}>إنشاء الحساب</Button>
+          {!linkTarget && <WebsiteFields form={form} setForm={setForm} fields={profileFields} options={{currentEducationLevel:[{value:'',label:'غير محدد'},{value:'high-school',label:'الثانوية'},{value:'bachelor',label:'بكالوريوس'},{value:'master',label:'ماجستير'},{value:'phd',label:'دكتوراه'}]}} disabled={createBusy}/>}{error && <p role="alert">{error}</p>}<Button type="submit" disabled={createBusy}>إنشاء الحساب</Button>
         </form>
       </Modal>
       <div className="kpi-grid student-kpis">

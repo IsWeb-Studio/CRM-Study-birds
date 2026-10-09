@@ -41,7 +41,7 @@ const priorityLabel = {
   urgent: 'عاجلة'
 };
 
-const todayKey = '2026-07-18';
+const todayKey = new Intl.DateTimeFormat('en-CA').format(new Date());
 
 function contactSubtitle(contact) {
   return contact.phone || contact.email || 'بدون وسيلة تواصل';
@@ -61,7 +61,7 @@ export default function InboxPage() {
   const allConversations = useUnifiedRecords(withMessages, 'mail');
   const mergedMessages = useUnifiedRecords(localConversations, 'messaging');
   const mergedConversations = useUnifiedRecords(mergedMessages, 'mail');
-  const { writesEnabled } = useContext(UnifiedSectionContext);
+  const { writesEnabled,refresh } = useContext(UnifiedSectionContext);
   const [channels, setChannels] = useState([]);
   const [messages, setMessages] = useState([]);
   const [users, setUsers] = useState([]);
@@ -368,7 +368,7 @@ export default function InboxPage() {
     if (!selected || (!composer.text.trim() && !composer.templateName.trim())) return;
     if (selected.websiteSource?.resource === 'mail') return;
     if (selected.websiteSource) {
-      if (!writesEnabled || !can(user, 'manageWebsite') || !composer.text.trim()) { setToast({ type:'error', message:'إرسال محادثة الموقع يحتاج صلاحية الكتابة ورسالة نصية.' }); return; }
+      if (!writesEnabled || !can(user, 'manageSupport') && !can(user, 'manageWebsite') || !composer.text.trim()) { setToast({ type:'error', message:'إرسال محادثة الموقع يحتاج صلاحية الكتابة ورسالة نصية.' }); return; }
       try {
         await api(`/api/integrations/website/messaging/${selected.websiteSource.id}`, { method:'POST', body:JSON.stringify({ body:composer.text.trim() }) });
         setComposer({ text:'', templateName:'' }); await loadMessages(selected.id);
@@ -414,7 +414,7 @@ export default function InboxPage() {
   const assignConversation = async event => {
     event.preventDefault();
     if (!selected) return;
-    if (selected.websiteSource) return;
+    if(selected.websiteSource){if(selected.websiteSource.resource!=='messaging')return;try{await api(`/api/integrations/website/messaging/${selected.websiteSource.id}/manage`,{method:'POST',body:JSON.stringify({assignedUserId:assignmentForm.assignedUserId})});await refresh();setToast({message:'تم حفظ متابعة المحادثة في CRM'});}catch(error){setToast({type:'error',message:error.message});}return;}
 
     try {
       await api(`/api/conversations/${selected.id}/assign`, {
@@ -431,7 +431,7 @@ export default function InboxPage() {
   const updateConversationStatus = async event => {
     event.preventDefault();
     if (!selected) return;
-    if (selected.websiteSource) return;
+    if(selected.websiteSource){if(selected.websiteSource.resource!=='messaging')return;try{await api(`/api/integrations/website/messaging/${selected.websiteSource.id}/manage`,{method:'POST',body:JSON.stringify({status:assignmentForm.status})});await refresh();setToast({message:'تم حفظ متابعة المحادثة في CRM'});}catch(error){setToast({type:'error',message:error.message});}return;}
 
     try {
       await api(`/api/conversations/${selected.id}/status`, {
@@ -448,7 +448,7 @@ export default function InboxPage() {
   const updateConversationClassification = async event => {
     event.preventDefault();
     if (!selected) return;
-    if (selected.websiteSource) return;
+    if(selected.websiteSource){if(selected.websiteSource.resource!=='messaging')return;try{await api(`/api/integrations/website/messaging/${selected.websiteSource.id}/manage`,{method:'POST',body:JSON.stringify({priority:classificationForm.priority,tags:classificationForm.tags.split(',').map(tag=>tag.trim()).filter(Boolean)})});await refresh();setToast({message:'تم حفظ متابعة المحادثة في CRM'});}catch(error){setToast({type:'error',message:error.message});}return;}
 
     try {
       await api(`/api/conversations/${selected.id}/classification`, {
@@ -752,7 +752,7 @@ export default function InboxPage() {
                 ))}
               </div>
 
-              {!selected.websiteSource && <><form className="stack-form" onSubmit={linkContact}>
+              {(!selected.websiteSource || selected.websiteSource.resource==='messaging') && <>{!selected.websiteSource && <form className="stack-form" onSubmit={linkContact}>
                 <Field label="ربط المحادثة بملف موجود" hint="اختر النوع ثم ابحث بالاسم أو الهاتف أو البريد، وبعدها اختر السجل المناسب.">
                   <div className="form-grid">
                     <select
@@ -822,7 +822,7 @@ export default function InboxPage() {
                     <Link2 /> ربط الملف
                   </Button>
                 </div>
-              </form>
+              </form>}
 
               <div className="form-grid">
                 <form className="stack-form" onSubmit={assignConversation}>

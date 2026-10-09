@@ -1,4 +1,5 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useContext, useEffect, useMemo, useState } from 'react';
+import { UnifiedSectionContext } from '../components/UnifiedSectionContext.jsx';
 import { api, formatDate } from '../api.js';
 import { useSearchParams } from 'react-router-dom';
 import { useNavigate } from 'react-router-dom';
@@ -36,6 +37,8 @@ const details = { name: 'الاسم', email: 'البريد', phone: 'الهات�
 
 export default function WebsitePage({ embedded = false, resources = null, dialogOnly = false, externalRecord = null, onDismiss, onSaved, localRows = [] }) {
   const { user } = useAuth();
+  const { records } = useContext(UnifiedSectionContext);
+  const [assignees,setAssignees]=useState([]);
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const [connection, setConnection] = useState(null);
@@ -65,9 +68,9 @@ export default function WebsitePage({ embedded = false, resources = null, dialog
     if (!connection?.ready || !resource) return;
     let active = true;
     setLoading(true); setError(''); setResult(null); setSelected(null);
-    api(`/api/integrations/website/requests/${resource}`).then(data => { if (active) setResult(data); }).catch(e => { if (active) setError(e.message); }).finally(() => { if (active) setLoading(false); });
+    (records[resource] ? Promise.resolve(records[resource]) : api(`/api/integrations/website/requests/${resource}`)).then(data => { if (active) setResult(data); }).catch(e => { if (active) setError(e.message); }).finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, [resource, connection?.ready]);
+  }, [resource, connection?.ready, records[resource]]);
   useEffect(() => { if (dialogOnly) return; const id = searchParams.get('id'); const row = result?.rows?.find(row => row._id === id); if (row) start(row); }, [result, searchParams, dialogOnly]);
   useEffect(() => { if (dialogOnly && externalRecord && result) start(externalRecord); }, [dialogOnly, externalRecord?._id, result]);
   const rows = useMemo(() => mergeRecords(localRows, (result?.rows || []).map(row => ({ ...row, websiteSource:{ resource, id:row._id } })), resource).filter(row => [person(row), title(row), row.status, row._id, row.email, row.phone].join(' ').toLowerCase().includes(search.trim().toLowerCase())), [localRows, result, resource, search]);
@@ -102,7 +105,8 @@ export default function WebsitePage({ embedded = false, resources = null, dialog
     try {await api(`/api/integrations/website/content/${resource}/${selected._id}/delete`,{method:'POST',body:'{}'});setSelected(null);onSaved?.();if (!dialogOnly) await load();}
     catch(e) {setError(e.message);} finally {setBusy(false);}
   }
-  function choose(action) {
+  async function choose(action) {
+    if(resource==='support' && action==='assign'){try{setAssignees(await api('/api/integrations/website/support-assignees'));}catch(e){setError(e.message);return;}}
     setOperation(action);if(!action){setForm({});return;}
     const fields = result.actions[action].fields;
     const values = {};
@@ -119,7 +123,8 @@ export default function WebsitePage({ embedded = false, resources = null, dialog
     event.preventDefault(); setBusy(true); setError(''); setNotice('');
     try {
       // Only explicitly populated fields are sent; hidden version fields preserve conflict detection.
-      const payload = Object.fromEntries(Object.entries(form).filter(([key,value])=>value!=='' || ['staffNote','adminNote','reviewNote','escalationNote','notes'].includes(key)));
+      const payload = Object.fromEntries(Object.entries(form).filter(([key,value])=>value!=='' || ['assignedTo','staffNote','adminNote','reviewNote','escalationNote','notes'].includes(key)));
+      if(resource==='support' && operation==='assign' && payload.assignedTo==='')payload.assignedTo=null;
       await api(`/api/integrations/website/requests/${resource}/${selected._id}/${operation}`, { method: 'POST', body: JSON.stringify(payload) });
       setSelected(null); setNotice('تم حفظ التحديث على الموقع.'); onSaved?.(); if (!dialogOnly) await load();
     } catch (e) { setError(e.message); } finally { setBusy(false); }
@@ -128,6 +133,7 @@ export default function WebsitePage({ embedded = false, resources = null, dialog
   const recordDialog = (
     <Modal open={Boolean(selected)} onClose={() => { if (!busy) { setSelected(null); onDismiss?.(); } }} title="تفاصيل السجل" size="lg">
       {selected && <><p>رقم السجل: {selected._id || '—'}</p><dl className="website-details">{Object.entries(details).filter(([key]) => selected[key] != null).map(([key, label]) => <div key={key}><dt>{label}</dt><dd>{key === 'status' || key === 'detailedStatus' ? statusLabels[selected[key]] || text(selected[key]) : text(selected[key])}</dd></div>)}</dl>
+      {resource==='support' && <section><h3>سجل الردود</h3>{(selected.replies || []).map((reply,index)=><div className="student-card-row" key={reply._id || index}><strong>{text(reply.user)} · {formatDate(reply.createdAt)}</strong><p>{reply.message}</p></div>)}{!selected.replies?.length && <p>لا توجد ردود حتى الآن.</p>}</section>}
       {error && <div role="alert" className="website-error">{error}</div>}
       {!embedded && !dialogOnly && canOpenModule(user, 'website') && <LinkWebsiteRecordButton resource={resource} record={selected} />}
       {selected.__crm && canOpenModule(user, 'catalogManagement') && <Button onClick={() => navigate('/catalog-management')}>تحرير في الدليل الدراسي</Button>}
@@ -138,7 +144,7 @@ export default function WebsitePage({ embedded = false, resources = null, dialog
       {Array.isArray(selected.documents) && selected.documents.filter(doc => doc && typeof doc === 'object' && doc._id).map(doc => <Button key={doc._id} disabled={busy} variant="secondary" onClick={() => openFile('documents', doc._id)}>{doc.fileName || doc.type || 'فتح مستند'}</Button>)}
       {resource==='support' && selected.attachment && <Button variant="secondary" disabled={busy} onClick={()=>openFile('support-attachments',selected._id)}>فتح مرفق التذكرة</Button>}
       {connection?.writesEnabled && !selected.__crm && allowedActions.length > 0 && <form onSubmit={save}><label className="field"><span>الإجراء</span><select value={operation} disabled={busy} onChange={e => choose(e.target.value)}><option value="">اختر إجراء</option>{allowedActions.map(key => <option key={key} value={key}>{actionLabels[key]}</option>)}</select></label>
-      {operation && Object.keys(form).filter(field => !['version', 'expectedVersion'].includes(field)).map(field => <label className="field" key={field}><span>{labels[field] || field}</span>{(field === 'status' || field === 'detailedStatus' || field === 'result') ? <select disabled={busy} value={form[field]} onChange={e => setForm(current => ({ ...current, [field]: e.target.value }))}>{(field === 'result' ? ['completed', 'no-show'] : statuses[resource] || [form[field]]).map(value => <option key={value} value={value}>{statusLabels[value] || value}</option>)}</select> : ['isActive', 'published','enabled','escalated','isEmergency'].includes(field) ? <input type="checkbox" checked={Boolean(form[field])} disabled={busy} onChange={e => setForm(current => ({ ...current, [field]: e.target.checked }))} /> : <textarea disabled={busy} maxLength={1000} value={form[field]} onChange={e => setForm(current => ({ ...current, [field]: e.target.value }))} />}</label>)}
+      {operation && Object.keys(form).filter(field => !['version', 'expectedVersion'].includes(field)).map(field => <label className="field" key={field}><span>{labels[field] || field}</span>{resource==='support' && field==='assignedTo' ? <select disabled={busy} value={form[field]} onChange={e=>setForm(current=>({...current,[field]:e.target.value}))}><option value="">بدون مسؤول</option>{assignees.map(row=><option value={row._id} key={row._id}>{row.name} · {row.email}</option>)}</select> : (field === 'status' || field === 'detailedStatus' || field === 'result') ? <select disabled={busy} value={form[field]} onChange={e => setForm(current => ({ ...current, [field]: e.target.value }))}>{(field === 'result' ? ['completed', 'no-show'] : statuses[resource] || [form[field]]).map(value => <option key={value} value={value}>{statusLabels[value] || value}</option>)}</select> : ['isActive', 'published','enabled','escalated','isEmergency'].includes(field) ? <input type="checkbox" checked={Boolean(form[field])} disabled={busy} onChange={e => setForm(current => ({ ...current, [field]: e.target.checked }))} /> : <textarea disabled={busy} maxLength={1000} value={form[field]} onChange={e => setForm(current => ({ ...current, [field]: e.target.value }))} />}</label>)}
       <p>الحفظ يحدّث السجل الأصلي.</p><Button disabled={busy || !operation} type="submit">{busy ? 'جارٍ الحفظ...' : 'حفظ التحديث'}</Button></form>}</>}
     </Modal>
   );
@@ -152,6 +158,7 @@ export default function WebsitePage({ embedded = false, resources = null, dialog
     {error && <div role="alert" className="website-error">{error}</div>}{notice && <div role="status" className="website-notice">{notice}</div>}
     <Card><div className="website-toolbar"><label className="field"><span>نوع الطلبات</span><select value={resource} disabled={loading || busy} onChange={e => { setResource(e.target.value); setSearch(''); }}>{availableResources.map(item => <option key={item.key} value={item.key}>{item.label}</option>)}</select></label><label className="field"><span>بحث في القائمة المعروضة</span><input type="search" placeholder="الاسم أو الخدمة أو رقم الطلب" value={search} onChange={e => setSearch(e.target.value)} /></label><Button variant="secondary" disabled={!connection?.ready || loading || busy} onClick={() => load()}>تحديث القائمة</Button></div>
       {loading ? <Spinner /> : <><p>{rows.length} سجل معروض {result?.fetchedAt && `• آخر قراءة: ${formatDate(result.fetchedAt)}`}</p>
+      {result?.stale && <p role="status" className="website-hint">تعذر تحديث القائمة؛ المعروض آخر بيانات الموقع المحفوظة. {(result.warnings || []).join('، ')}</p>}
       {result?.completeness === 'endpoint-limit' && <p className="website-hint">هذه قائمة السجلات التي أتاحتها واجهة الموقع؛ بعض الأقسام تضع حدًا لعدد السجلات.</p>}
       <div className="website-table-wrap"><table className="catalog-table"><thead><tr><th>المصدر</th><th>الاسم / مقدم الطلب</th><th>الخدمة / البرنامج</th><th>الحالة</th><th>التاريخ</th><th>التفاصيل</th></tr></thead><tbody>{rows.map((row, index) => <tr key={row._id || index}><td><Badge tone={row.__crm ? 'neutral' : 'blue'}>{row.__crm ? 'CRM' : 'مرتبط'}</Badge></td><td>{person(row)}</td><td>{title(row)}</td><td>{statusLabels[row.detailedStatus || row.status] || row.status || '—'}</td><td>{formatDate(row.createdAt)}</td><td><Button variant="secondary" onClick={() => start(row)}>عرض</Button></td></tr>)}</tbody></table></div>{!rows.length && !error && <p>لا توجد سجلات لعرضها.</p>}</>}
     </Card>

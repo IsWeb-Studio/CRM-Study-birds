@@ -2,32 +2,32 @@ import React from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { useAuth } from './auth.jsx';
 import Layout from './components/Layout.jsx';
-import Login from './pages/Login.jsx';
+const Login = React.lazy(() => import('./pages/Login.jsx'));
 import WebsitePage from './pages/WebsitePage.jsx';
 import SectionWorkspace from './components/SectionWorkspace.jsx';
 import './website.css';
-import Dashboard from './pages/Dashboard.jsx';
-import Consultancy from './pages/Consultancy.jsx';
-import StudentsPage from './pages/StudentsPage.jsx';
-import Admissions from './pages/Admissions.jsx';
-import ReportsPage from './pages/ReportsPage.jsx';
-import Reception from './pages/Reception.jsx';
-import HR from './pages/HR.jsx';
-import Finance from './pages/Finance.jsx';
-import ActivityPage from './pages/ActivityPage.jsx';
-import SettingsPage from './pages/SettingsPage.jsx';
-import TasksPage from './pages/TasksPage.jsx';
-import InboxPage from './pages/InboxPage.jsx';
-import UniversitiesPage from './pages/UniversitiesPage.jsx';
-import ProgramsCatalogPage from './pages/ProgramsCatalogPage.jsx';
-import ScholarshipsPage from './pages/ScholarshipsPage.jsx';
-import EducationCatalogAdminPage from './pages/EducationCatalogAdminPage.jsx';
-import RemindersPage from './pages/RemindersPage.jsx';
-import CallsSchedulePage from './pages/CallsSchedulePage.jsx';
-import ScriptsLibraryPage from './pages/ScriptsLibraryPage.jsx';
-import DailyReportPage from './pages/DailyReportPage.jsx';
-import LeaveManagementPage from './pages/LeaveManagementPage.jsx';
-import SalesPortalPage from './pages/SalesPortalPage.jsx';
+const Dashboard = React.lazy(() => import('./pages/Dashboard.jsx'));
+const Consultancy = React.lazy(() => import('./pages/Consultancy.jsx'));
+const StudentsPage = React.lazy(() => import('./pages/StudentsPage.jsx'));
+const Admissions = React.lazy(() => import('./pages/Admissions.jsx'));
+const ReportsPage = React.lazy(() => import('./pages/ReportsPage.jsx'));
+const Reception = React.lazy(() => import('./pages/Reception.jsx'));
+const HR = React.lazy(() => import('./pages/HR.jsx'));
+const Finance = React.lazy(() => import('./pages/Finance.jsx'));
+const ActivityPage = React.lazy(() => import('./pages/ActivityPage.jsx'));
+const SettingsPage = React.lazy(() => import('./pages/SettingsPage.jsx'));
+const TasksPage = React.lazy(() => import('./pages/TasksPage.jsx'));
+const InboxPage = React.lazy(() => import('./pages/InboxPage.jsx'));
+const UniversitiesPage = React.lazy(() => import('./pages/UniversitiesPage.jsx'));
+const ProgramsCatalogPage = React.lazy(() => import('./pages/ProgramsCatalogPage.jsx'));
+const ScholarshipsPage = React.lazy(() => import('./pages/ScholarshipsPage.jsx'));
+const EducationCatalogAdminPage = React.lazy(() => import('./pages/EducationCatalogAdminPage.jsx'));
+const RemindersPage = React.lazy(() => import('./pages/RemindersPage.jsx'));
+const CallsSchedulePage = React.lazy(() => import('./pages/CallsSchedulePage.jsx'));
+const ScriptsLibraryPage = React.lazy(() => import('./pages/ScriptsLibraryPage.jsx'));
+const DailyReportPage = React.lazy(() => import('./pages/DailyReportPage.jsx'));
+const LeaveManagementPage = React.lazy(() => import('./pages/LeaveManagementPage.jsx'));
+const SalesPortalPage = React.lazy(() => import('./pages/SalesPortalPage.jsx'));
 import { canOpenModule } from './permissions.js';
 
 function Guard({ module, children }) {
@@ -35,7 +35,7 @@ function Guard({ module, children }) {
   return canOpenModule(user, module) ? children : <Navigate to="/" replace />;
 }
 
-export default function App() {
+function AppRoutes() {
   const { user } = useAuth();
 
   if (!user) {
@@ -90,3 +90,5 @@ export default function App() {
     </Routes>
   );
 }
+
+export default function App(){return <React.Suspense fallback={<div role="status" className="page-loading">جارٍ تحميل القسم...</div>}><AppRoutes /></React.Suspense>;}
