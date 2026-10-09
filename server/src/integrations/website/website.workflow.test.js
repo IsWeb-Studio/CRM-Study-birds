@@ -64,6 +64,13 @@ test('a failed resource does not erase observations or prevent other resources f
   await assert.rejects(workflow.synchronize('unknown'));
 });
 test('poller disabled by default', () => { assert.equal(typeof startWebsitePolling({}, {}), 'function'); });
+test('configured employee identity matches website assignment before round-robin distribution', () => {
+  const state = db();
+  state.users.push({ id: 'mapped', companyId: 'c1' });
+  state.websiteSyncSettings.c1.identities = { mapped: id('f') };
+  observeWebsiteRows(state, 'c1', 'applications', [{ ...row('a'), assignedAdvisor: { _id: id('f') } }]);
+  assert.equal(state.websiteInbox[0].ownerId, 'mapped');
+});
 test('mail receiver rejects unauthenticated messages and deduplicates provider message ids', async () => {
   const state = db(); let route;
   mountWebsiteEmail({ post: (_path, handler) => { route = handler; } }, { mutateDb: async fn => fn(state) }, { STUDY_BIRDS_MAIL_SECRET: 'test', STUDY_BIRDS_COMPANY_ID: 'c1' });

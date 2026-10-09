@@ -24,7 +24,10 @@ export function observeWebsiteRows(db, companyId, resource, rows, { notify = tru
     const snapshot = { name: name(remote), title: value(remote.program) || remote.serviceTitle || remote.subject || value(remote.scholarship), status: remote.detailedStatus || remote.status || '', websiteCreatedAt: remote.createdAt || '', observedAt: new Date().toISOString() };
     if (existing) { Object.assign(existing, snapshot); continue; }
     const index = db.websiteInbox.filter(row => row.companyId === companyId).length;
-    const ownerId = policy.autoAssign && recipients.length ? recipients[index % recipients.length] : '';
+    const remoteAdvisor = remote.assignedAdvisor || remote.assignedTo || remote.advisor;
+    const advisorId = typeof remoteAdvisor === 'object' ? remoteAdvisor?._id : remoteAdvisor;
+    const mappedOwner = Object.entries(policy.identities || {}).find(([localId, siteId]) => siteId && siteId === advisorId && activeUser(db, companyId, localId))?.[0];
+    const ownerId = policy.autoAssign ? mappedOwner || (recipients.length ? recipients[index % recipients.length] : '') : '';
     const entry = { id: randomUUID(), companyId, resource, websiteId: remote._id, ownerId, source: 'study-birds', ...snapshot };
     db.websiteInbox.push(entry);
     newCount++;
