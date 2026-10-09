@@ -35,7 +35,7 @@ const REFRESH_MS = 10_000;
 const HIGHLIGHT_MS = 8_000;
 
 const modules = [
-  { to: '/website', label: 'طلبات الموقع', icon: Building2, roles: ['admin', 'management'] },
+  { to: '/website', label: 'إعدادات ربط الموقع', icon: Building2, roles: ['admin', 'management'] },
   { to: '/', label: 'لوحة الإدارة', icon: BarChart3, roles: ['admin', 'management', 'consultant', 'admissions', 'reception', 'hr', 'finance'] },
   { to: '/consultancy', label: 'الاستشارات', icon: BriefcaseBusiness, roles: ['admin', 'management', 'consultant', 'admissions', 'reception'] },
   { to: '/students', label: 'الطلاب', icon: UserSquare2, roles: ['admin', 'management', 'consultant', 'admissions', 'finance', 'reception'] },
@@ -57,11 +57,17 @@ const modules = [
   { to: '/programs', label: 'البرامج', icon: BookOpenCheck, roles: ['admin', 'management'] },
   { to: '/scholarships', label: 'المنح', icon: Sparkles, roles: ['admin', 'management'] },
   { to: '/catalog-management', label: 'إدارة الدليل الدراسي', icon: Building2, roles: ['admin', 'management'] },
+  { to: '/services', label: 'الخدمات والسكن', icon: Headphones, roles: ['admin', 'management', 'admissions', 'reception'] },
+  { to: '/partners', label: 'الوكلاء والشركاء', icon: UsersRound, roles: ['admin', 'management'] },
+  { to: '/content', label: 'محتوى الموقع', icon: BookOpenCheck, roles: ['admin', 'management'] },
   { to: '/settings', label: 'الإعدادات', icon: Settings2, roles: ['admin', 'management'] }
 ];
 
 const titles = {
-  '/website': ['طلبات الموقع', 'إدارة طلبات Study Birds مع الحفاظ على أعمال CRM المستقلة.'],
+  '/website': ['إعدادات ربط الموقع', 'اختبار الاتصال وإعداد إشعارات الطلبات والتوزيع.'],
+  '/services': ['الخدمات والسكن', 'إدارة خدمات الطلاب والسكن واستقبال المطار.'],
+  '/partners': ['الوكلاء والشركاء', 'إدارة طلبات الوكالة وطلاب الشركاء والتوثيق.'],
+  '/content': ['محتوى الموقع', 'تحرير الخدمات والأسئلة الشائعة وقاعدة المعرفة.'],
   '/': ['لوحة الإدارة', 'نظرة موحدة على المبيعات والقبول والموارد البشرية والإيرادات.'],
   '/consultancy': ['قسم الاستشارات', 'تابع العملاء المحتملين وانقلهم خلال رحلة الطالب خطوة بخطوة.'],
   '/students': ['ملفات الطلاب', 'اعرض بيانات الطالب وطلباته وفواتيره من مكان واحد.'],

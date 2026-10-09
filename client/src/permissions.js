@@ -1,5 +1,8 @@
 export const modulePermissions = {
   website: ['admin', 'management'],
+  services: ['admin', 'management', 'admissions', 'reception'],
+  partners: ['admin', 'management'],
+  content: ['admin', 'management'],
   consultancy: ['admin', 'management', 'consultant', 'admissions', 'reception'],
   students: ['admin', 'management', 'consultant', 'admissions', 'finance', 'reception'],
   admissions: ['admin', 'management', 'consultant', 'admissions'],
@@ -24,7 +27,10 @@ export const modulePermissions = {
 };
 
 export const moduleLabels = {
-  website: 'طلبات الموقع',
+  website: 'إعدادات ربط الموقع',
+  services: 'الخدمات والسكن',
+  partners: 'الوكلاء والشركاء',
+  content: 'محتوى الموقع',
   consultancy: 'الاستشارات',
   students: 'الطلاب',
   admissions: 'القبول والتسجيل',

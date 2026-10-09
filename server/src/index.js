@@ -3327,7 +3327,7 @@ async function prepareDb() {
 
 await prepareDb();
 
-app.get('/api/health', (_req, res) => res.json({ status: 'ok', time: now(), websiteIntegration: 2, buildCommit: process.env.RENDER_GIT_COMMIT || process.env.VERCEL_GIT_COMMIT_SHA || null }));
+app.get('/api/health', (_req, res) => res.json({ status: 'ok', time: now(), websiteIntegration: 3, buildCommit: process.env.RENDER_GIT_COMMIT || process.env.VERCEL_GIT_COMMIT_SHA || null }));
 
 app.post('/api/auth/login', async (req, res) => {
   const { email, password } = req.body || {};
@@ -4153,14 +4153,15 @@ app.get('/api/settings', async (_req, res) => {
   });
 });
 
-app.get('/api/education-catalog', allowAnyModule('universities', 'programs', 'scholarships'), async (_req, res) => {
+app.get('/api/education-catalog', allowAnyModule('universities', 'programs', 'scholarships', 'catalogManagement'), async (req, res) => {
   const db = await readDb();
   const websiteEnabled = process.env.STUDY_BIRDS_ENABLED === 'true';
-  const catalog = websiteEnabled ? { ...(await websiteClient.catalog()), scholarships: db.educationCatalog?.scholarships || [] } : sanitizeEducationCatalog(db.educationCatalog || {});
+  const useWebsiteCatalog = websiteEnabled && req.query.source !== 'crm';
+  const catalog = useWebsiteCatalog ? { ...(await websiteClient.catalog()), scholarships: db.educationCatalog?.scholarships || [] } : sanitizeEducationCatalog(db.educationCatalog || {});
   const catalogLinks = buildEducationCatalogLinks(catalog);
   const effectiveCountries = getEffectiveCatalogCountries(catalog, catalogLinks);
   res.json({
-    source: websiteEnabled ? 'study-birds' : 'crm',
+    source: useWebsiteCatalog ? 'study-birds' : 'crm',
     summary: {
       countries: effectiveCountries.length,
       universities: Array.isArray(catalog.universities) ? catalog.universities.length : 0,

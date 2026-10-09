@@ -4,6 +4,9 @@ const secret = () => process.env.JWT_SECRET || 'development-only-secret-change-m
 
 const modulePermissions = {
   website: ['admin', 'management'],
+  services: ['admin', 'management', 'admissions', 'reception'],
+  partners: ['admin', 'management'],
+  content: ['admin', 'management'],
   consultancy: ['admin', 'management', 'consultant', 'admissions', 'reception'],
   students: ['admin', 'management', 'consultant', 'admissions', 'finance', 'reception'],
   admissions: ['admin', 'management', 'consultant', 'admissions'],

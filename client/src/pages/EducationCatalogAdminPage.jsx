@@ -105,7 +105,7 @@ export default function EducationCatalogAdminPage() {
   });
 
   const load = () =>
-    api('/api/education-catalog')
+    api('/api/education-catalog?source=crm')
       .then(catalog => {
         setCatalogLinks(catalog.catalogLinks || {});
         setCatalogForm({

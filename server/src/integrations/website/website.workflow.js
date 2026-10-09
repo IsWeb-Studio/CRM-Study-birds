@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { websiteResourceRoute } from './website.sections.js';
 
 const fail = (message, status = 400) => Object.assign(new Error(message), { status });
 const requestTypes = ['applications', 'services', 'housing', 'arrival', 'consultations', 'scholarships', 'support', 'agencies', 'verification', 'payouts', 'events', 'parents', 'financials'];
@@ -32,7 +33,7 @@ export function observeWebsiteRows(db, companyId, resource, rows, { notify = tru
     db.websiteInbox.push(entry);
     newCount++;
     if (!initial && notify) for (const userId of ownerId ? [ownerId] : recipients) {
-      db.userNotifications.unshift({ id: randomUUID(), companyId, userId, title: 'طلب جديد من الموقع', message: `${snapshot.name} — ${snapshot.title || resource}`, readAt: '', createdAt: new Date().toISOString(), metadata: { type: 'website-request', resource, websiteId: remote._id, link: `/website?resource=${resource}&id=${remote._id}` } });
+      db.userNotifications.unshift({ id: randomUUID(), companyId, userId, title: 'طلب جديد من الموقع', message: `${snapshot.name} — ${snapshot.title || resource}`, readAt: '', createdAt: new Date().toISOString(), metadata: { type: 'website-request', resource, websiteId: remote._id, link: `${websiteResourceRoute(resource)}?resource=${resource}&id=${remote._id}` } });
     }
   }
   // Absence from a limited website response never deletes historical CRM entries.

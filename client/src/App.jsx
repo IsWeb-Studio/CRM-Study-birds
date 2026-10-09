@@ -4,6 +4,7 @@ import { useAuth } from './auth.jsx';
 import Layout from './components/Layout.jsx';
 import Login from './pages/Login.jsx';
 import WebsitePage from './pages/WebsitePage.jsx';
+import SectionWorkspace from './components/SectionWorkspace.jsx';
 import './website.css';
 import Dashboard from './pages/Dashboard.jsx';
 import Consultancy from './pages/Consultancy.jsx';
@@ -59,10 +60,10 @@ export default function App() {
       <Route path="/login" element={<Navigate to="/" replace />} />
       <Route element={<Layout />}>
         <Route index element={homeElement} />
-        <Route path="consultancy" element={<Guard module="consultancy"><Consultancy /></Guard>} />
-        <Route path="students" element={<Guard module="students"><StudentsPage /></Guard>} />
-        <Route path="admissions" element={<Guard module="admissions"><Admissions /></Guard>} />
-        <Route path="inbox" element={<Guard module="inbox"><InboxPage /></Guard>} />
+        <Route path="consultancy" element={<Guard module="consultancy"><SectionWorkspace module="consultancy"><Consultancy /></SectionWorkspace></Guard>} />
+        <Route path="students" element={<Guard module="students"><SectionWorkspace module="students"><StudentsPage /></SectionWorkspace></Guard>} />
+        <Route path="admissions" element={<Guard module="admissions"><SectionWorkspace module="admissions"><Admissions /></SectionWorkspace></Guard>} />
+        <Route path="inbox" element={<Guard module="inbox"><SectionWorkspace module="inbox"><InboxPage /></SectionWorkspace></Guard>} />
         <Route path="reports" element={<Guard module="reports"><ReportsPage /></Guard>} />
         <Route path="tasks" element={<Guard module="tasks"><TasksPage /></Guard>} />
         <Route path="reminders" element={<Guard module="reminders"><RemindersPage /></Guard>} />
@@ -71,16 +72,19 @@ export default function App() {
         <Route path="daily-report" element={<Guard module="dailyReport"><DailyReportPage /></Guard>} />
         <Route path="leave" element={<Guard module="leave"><LeaveManagementPage /></Guard>} />
         <Route path="sales" element={<Guard module="sales"><SalesPortalPage /></Guard>} />
-        <Route path="reception" element={<Guard module="reception"><Reception /></Guard>} />
-        <Route path="hr" element={<Guard module="hr"><HR /></Guard>} />
-        <Route path="finance" element={<Guard module="finance"><Finance /></Guard>} />
+        <Route path="reception" element={<Guard module="reception"><SectionWorkspace module="reception"><Reception /></SectionWorkspace></Guard>} />
+        <Route path="hr" element={<Guard module="hr"><SectionWorkspace module="hr"><HR /></SectionWorkspace></Guard>} />
+        <Route path="finance" element={<Guard module="finance"><SectionWorkspace module="finance"><Finance /></SectionWorkspace></Guard>} />
         <Route path="activity" element={<Guard module="activity"><ActivityPage /></Guard>} />
-        <Route path="universities" element={<Guard module="universities"><UniversitiesPage /></Guard>} />
-        <Route path="programs" element={<Guard module="programs"><ProgramsCatalogPage /></Guard>} />
-        <Route path="scholarships" element={<Guard module="scholarships"><ScholarshipsPage /></Guard>} />
-        <Route path="catalog-management" element={<Guard module="catalogManagement"><EducationCatalogAdminPage /></Guard>} />
+        <Route path="universities" element={<Guard module="universities"><SectionWorkspace module="universities"><UniversitiesPage /></SectionWorkspace></Guard>} />
+        <Route path="programs" element={<Guard module="programs"><SectionWorkspace module="programs"><ProgramsCatalogPage /></SectionWorkspace></Guard>} />
+        <Route path="scholarships" element={<Guard module="scholarships"><SectionWorkspace module="scholarships"><ScholarshipsPage /></SectionWorkspace></Guard>} />
+        <Route path="catalog-management" element={<Guard module="catalogManagement"><SectionWorkspace module="catalogManagement"><EducationCatalogAdminPage /></SectionWorkspace></Guard>} />
+        <Route path="services" element={<Guard module="services"><SectionWorkspace module="services" /></Guard>} />
+        <Route path="partners" element={<Guard module="partners"><SectionWorkspace module="partners" /></Guard>} />
+        <Route path="content" element={<Guard module="content"><SectionWorkspace module="content" /></Guard>} />
         <Route path="website" element={<Guard module="website"><WebsitePage /></Guard>} />
-        <Route path="settings" element={<Guard module="settings"><SettingsPage /></Guard>} />
+        <Route path="settings" element={<Guard module="settings"><SectionWorkspace module="settings"><SettingsPage /></SectionWorkspace></Guard>} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
     </Routes>

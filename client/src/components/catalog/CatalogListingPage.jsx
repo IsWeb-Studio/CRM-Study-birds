@@ -86,7 +86,7 @@ export default function CatalogListingPage({
 
     const load = async () => {
       try {
-        const nextCatalog = await api('/api/education-catalog');
+        const nextCatalog = await api('/api/education-catalog?source=crm');
         if (!active) return;
         setCatalog(nextCatalog);
       } catch (error) {
