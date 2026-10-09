@@ -3,6 +3,7 @@ import jwt from 'jsonwebtoken';
 const secret = () => process.env.JWT_SECRET || 'development-only-secret-change-me';
 
 const modulePermissions = {
+  website: ['admin', 'management'],
   consultancy: ['admin', 'management', 'consultant', 'admissions', 'reception'],
   students: ['admin', 'management', 'consultant', 'admissions', 'finance', 'reception'],
   admissions: ['admin', 'management', 'consultant', 'admissions'],

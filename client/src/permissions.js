@@ -1,4 +1,5 @@
 export const modulePermissions = {
+  website: ['admin', 'management'],
   consultancy: ['admin', 'management', 'consultant', 'admissions', 'reception'],
   students: ['admin', 'management', 'consultant', 'admissions', 'finance', 'reception'],
   admissions: ['admin', 'management', 'consultant', 'admissions'],
@@ -23,6 +24,7 @@ export const modulePermissions = {
 };
 
 export const moduleLabels = {
+  website: 'طلبات الموقع',
   consultancy: 'الاستشارات',
   students: 'الطلاب',
   admissions: 'القبول والتسجيل',

@@ -3,6 +3,8 @@ import { Navigate, Route, Routes } from 'react-router-dom';
 import { useAuth } from './auth.jsx';
 import Layout from './components/Layout.jsx';
 import Login from './pages/Login.jsx';
+import WebsitePage from './pages/WebsitePage.jsx';
+import './website.css';
 import Dashboard from './pages/Dashboard.jsx';
 import Consultancy from './pages/Consultancy.jsx';
 import StudentsPage from './pages/StudentsPage.jsx';
@@ -77,6 +79,7 @@ export default function App() {
         <Route path="programs" element={<Guard module="programs"><ProgramsCatalogPage /></Guard>} />
         <Route path="scholarships" element={<Guard module="scholarships"><ScholarshipsPage /></Guard>} />
         <Route path="catalog-management" element={<Guard module="catalogManagement"><EducationCatalogAdminPage /></Guard>} />
+        <Route path="website" element={<Guard module="website"><WebsitePage /></Guard>} />
         <Route path="settings" element={<Guard module="settings"><SettingsPage /></Guard>} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>

@@ -35,6 +35,7 @@ const REFRESH_MS = 10_000;
 const HIGHLIGHT_MS = 8_000;
 
 const modules = [
+  { to: '/website', label: 'طلبات الموقع', icon: Building2, roles: ['admin', 'management'] },
   { to: '/', label: 'لوحة الإدارة', icon: BarChart3, roles: ['admin', 'management', 'consultant', 'admissions', 'reception', 'hr', 'finance'] },
   { to: '/consultancy', label: 'الاستشارات', icon: BriefcaseBusiness, roles: ['admin', 'management', 'consultant', 'admissions', 'reception'] },
   { to: '/students', label: 'الطلاب', icon: UserSquare2, roles: ['admin', 'management', 'consultant', 'admissions', 'finance', 'reception'] },
@@ -60,6 +61,7 @@ const modules = [
 ];
 
 const titles = {
+  '/website': ['طلبات الموقع', 'إدارة طلبات Study Birds مع الحفاظ على أعمال CRM المستقلة.'],
   '/': ['لوحة الإدارة', 'نظرة موحدة على المبيعات والقبول والموارد البشرية والإيرادات.'],
   '/consultancy': ['قسم الاستشارات', 'تابع العملاء المحتملين وانقلهم خلال رحلة الطالب خطوة بخطوة.'],
   '/students': ['ملفات الطلاب', 'اعرض بيانات الطالب وطلباته وفواتيره من مكان واحد.'],

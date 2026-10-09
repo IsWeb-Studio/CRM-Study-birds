@@ -317,7 +317,7 @@ export async function writeDb(data) {
 }
 
 export function mutateDb(mutator) {
-  queue = queue.then(async () => {
+  queue = queue.catch(() => undefined).then(async () => {
     const data = await readDb();
     const result = await mutator(data);
     await writeDb(data);

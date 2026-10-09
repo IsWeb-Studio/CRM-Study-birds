@@ -1,4 +1,6 @@
 import 'dotenv/config';
+import { createWebsiteClient, mountWebsiteRoutes, websiteConfig } from './integrations/website/website.service.js';
+const websiteClient = createWebsiteClient();
 import express from 'express';
 import cors from 'cors';
 import morgan from 'morgan';
@@ -3552,6 +3554,8 @@ app.use('/api', requireAuth, async (req, res, next) => {
   next();
 });
 
+mountWebsiteRoutes(app, { allowModule, client: websiteClient, readDb, mutateDb });
+
 app.get('/api/me', async (req, res) => {
   const db = await readDb();
   const user = db.users.find(item => item.id === req.user.sub && item.companyId === req.user.companyId);
@@ -4096,19 +4100,26 @@ app.get('/api/dashboard', async (req, res) => {
 
 app.get('/api/settings', async (_req, res) => {
   const db = await readDb();
-  db.settings.documentChecklistTemplates = sanitizeChecklistTemplates(db.settings.documentChecklistTemplates || []);
-  db.settings.applicationWorkflowTemplates = sanitizeWorkflowTemplates(db.settings.applicationWorkflowTemplates || []);
-  const catalogLinks = buildEducationCatalogLinks(db.educationCatalog || {});
-  db.settings.availableUniversities = catalogLinks.universities.length
+  const settings = { ...db.settings };
+  settings.documentChecklistTemplates = sanitizeChecklistTemplates(settings.documentChecklistTemplates || []);
+  settings.applicationWorkflowTemplates = sanitizeWorkflowTemplates(settings.applicationWorkflowTemplates || []);
+  const websiteEnabled = websiteConfig().enabled;
+  let catalog = db.educationCatalog || {};
+  if (websiteEnabled) {
+    try { catalog = await websiteClient.catalog(); }
+    catch (error) { catalog = {}; settings.websiteCatalogError = error.message; }
+  }
+  const catalogLinks = buildEducationCatalogLinks(catalog);
+  settings.availableUniversities = websiteEnabled || catalogLinks.universities.length
     ? catalogLinks.universities
-    : sanitizeOptionList(db.settings.availableUniversities || []);
-  db.settings.availablePrograms = catalogLinks.programs.length
+    : sanitizeOptionList(settings.availableUniversities || []);
+  settings.availablePrograms = websiteEnabled || catalogLinks.programs.length
     ? catalogLinks.programs
-    : sanitizeOptionList(db.settings.availablePrograms || []);
-  db.settings.availableScholarships = sanitizeOptionList(db.settings.availableScholarships || []);
-  db.settings.availableCountries = catalogLinks.countries.length
+    : sanitizeOptionList(settings.availablePrograms || []);
+  settings.availableScholarships = sanitizeOptionList(settings.availableScholarships || []);
+  settings.availableCountries = websiteEnabled || catalogLinks.countries.length
     ? catalogLinks.countries
-    : sanitizeOptionList(db.settings.availableCountries || []);
+    : sanitizeOptionList(settings.availableCountries || []);
   const companyId = _req.user.companyId;
   const users = getScopedItems(db.users, companyId);
   const hrEmployees = users
@@ -4123,7 +4134,7 @@ app.get('/api/settings', async (_req, res) => {
     })
     .filter(Boolean);
   res.json({
-    ...db.settings,
+    ...settings,
     catalogLinks,
     users: users.map(({ passwordHash, ...user }) => ({
       ...user,
@@ -4140,10 +4151,12 @@ app.get('/api/settings', async (_req, res) => {
 
 app.get('/api/education-catalog', allowAnyModule('universities', 'programs', 'scholarships'), async (_req, res) => {
   const db = await readDb();
-  const catalog = sanitizeEducationCatalog(db.educationCatalog || {});
+  const websiteEnabled = websiteConfig().enabled;
+  const catalog = websiteEnabled ? { ...(await websiteClient.catalog()), scholarships: db.educationCatalog?.scholarships || [] } : sanitizeEducationCatalog(db.educationCatalog || {});
   const catalogLinks = buildEducationCatalogLinks(catalog);
   const effectiveCountries = getEffectiveCatalogCountries(catalog, catalogLinks);
   res.json({
+    source: websiteEnabled ? 'study-birds' : 'crm',
     summary: {
       countries: effectiveCountries.length,
       universities: Array.isArray(catalog.universities) ? catalog.universities.length : 0,
@@ -5193,7 +5206,7 @@ app.post('/api/applications', allowAction('createApplication'), async (req, res)
 
 app.patch('/api/applications/:id', allowAction('updateApplicationStatus'), async (req, res) => {
   const result = await mutateDb(db => {
-    const application = db.applications.find(item => item.id === req.params.id);
+    const application = db.applications.find(item => item.id === req.params.id && item.companyId === req.user.companyId);
     if (!application) throw Object.assign(new Error('طلب القبول غير موجود'), { status: 404 });
     const nextStatus = req.body.status || application.status;
     const nextOfferType = req.body.offerType ?? application.offerType ?? '';
@@ -5229,7 +5242,7 @@ app.patch('/api/applications/:id', allowAction('updateApplicationStatus'), async
 
 app.patch('/api/applications/:id/follow-up/:stageId', allowAction('manageApplicationFollowUp'), async (req, res) => {
   const result = await mutateDb(db => {
-    const application = db.applications.find(item => item.id === req.params.id);
+    const application = db.applications.find(item => item.id === req.params.id && item.companyId === req.user.companyId);
     if (!application) throw Object.assign(new Error('طلب القبول غير موجود'), { status: 404 });
 
     const workflowState = computeApplicationWorkflowState(application, db.settings);
@@ -5257,10 +5270,6 @@ app.patch('/api/applications/:id/follow-up/:stageId', allowAction('manageApplica
     }
 
     application.updatedAt = now();
-    if (document.type === 'Acceptance Letter') {
-      application.offerLetterUploadedAt = now();
-      notifyConsultantAboutOffer(db, req.user.companyId, application, 'offer_letter_uploaded');
-    }
     const nextState = buildApplicationState(application, db.settings);
     application.documentProgress = nextState.documentProgress;
     activity(db, req.user, 'updated', 'application-follow-up', `${application.id}:${stage.id}`, `${application.id} - ${stage.title} - ${done ? 'completed' : 'reopened'}`);
@@ -5275,7 +5284,7 @@ app.post('/api/applications/:id/documents', allowAction('uploadDocument'), uploa
   if (!req.file) return res.status(400).json({ message: 'الملف مطلوب' });
 
   const result = await mutateDb(db => {
-    const application = db.applications.find(item => item.id === req.params.id);
+    const application = db.applications.find(item => item.id === req.params.id && item.companyId === req.user.companyId);
     if (!application) throw Object.assign(new Error('طلب القبول غير موجود'), { status: 404 });
 
     const documentType = req.body.type || 'Other';
