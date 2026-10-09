@@ -5,12 +5,15 @@ import { api, formatDate, formatMoney, initials } from '../api.js';
 import { Badge, Button, Card, Progress, Spinner } from '../components/UI.jsx';
 import { useAuth } from '../auth.jsx';
 import { tr } from '../i18n.js';
+import { useUnifiedRecords } from '../components/UnifiedSectionContext.jsx';
+import SourceRecordActions from '../components/SourceRecordActions.jsx';
 
 export default function StudentsPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const [students, setStudents] = useState([]);
+  const [localStudents, setStudents] = useState([]);
+  const students = useUnifiedRecords(localStudents, 'students');
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState('');
   const [selectedId, setSelectedId] = useState(null);
@@ -159,6 +162,7 @@ export default function StudentsPage() {
               </div>
 
               <div className="student-quick-actions">
+                <SourceRecordActions record={selected} />
                 {selected.phone && <a className="btn btn-secondary" href={`tel:${selected.phone}`}>اتصال</a>}
                 {selected.email && <a className="btn btn-secondary" href={`mailto:${selected.email}`}>إيميل</a>}
                 {selectedWhatsApp && <a className="btn btn-secondary" href={`https://wa.me/${selectedWhatsApp}`} target="_blank" rel="noreferrer">واتساب</a>}

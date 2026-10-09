@@ -1,4 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { useUnifiedRecords } from '../components/UnifiedSectionContext.jsx';
+import SourceRecordActions from '../components/SourceRecordActions.jsx';
 import {
   AlertTriangle,
   CalendarCheck2,
@@ -94,7 +96,8 @@ const payrollToCsv = rows => {
 
 export default function HR() {
   const { user } = useAuth();
-  const [employees, setEmployees] = useState([]);
+  const [localEmployees, setEmployees] = useState([]);
+  const employees = useUnifiedRecords(localEmployees, 'employees');
   const [attendance, setAttendance] = useState([]);
   const [targets, setTargets] = useState([]);
   const [payroll, setPayroll] = useState([]);
@@ -221,6 +224,10 @@ export default function HR() {
   };
 
   const saveHrConfig = async (employeeId, payload) => {
+    if (employees.find(row => row.id === employeeId)?.websiteSource) {
+      setToast({ type: 'error', message: 'استخدم إدارة السجل لتحديث بيانات الموظف المرتبط.' });
+      return;
+    }
     try {
       await api(`/api/hr/employees/${employeeId}`, { method: 'PATCH', body: JSON.stringify(payload) });
       await load();
@@ -490,18 +497,19 @@ export default function HR() {
                 <p>{tr(employee.title)}</p>
                 <span>{tr(employee.department)} · {employee.branch}</span>
                 <div className="employee-stats">
-                  <div><span>الحضور</span><strong>{employee.attendanceRate}%</strong><Progress value={employee.attendanceRate} /></div>
+                  <div><span>الحضور</span><strong>{employee.attendanceRate == null ? '—' : `${employee.attendanceRate}%`}</strong><Progress value={employee.attendanceRate || 0} /></div>
                   <div><span>تحقق التارجت</span><strong>{targetRow ? `${targetRow.targetProgress}%` : '—'}</strong><Progress value={targetRow?.targetProgress || 0} /></div>
                 </div>
                 <div className="employee-card-actions" onClick={event => event.stopPropagation()}>
                   <a href={`mailto:${employee.email}`}>تواصل</a>
-                  {canTerminateEmployee && (
+                  <SourceRecordActions record={employee} />
+                  {canTerminateEmployee && !employee.websiteSource && (
                     <button className="employee-card-action danger-text" type="button" onClick={() => openTerminateModal(employee)}>
                       <UserX2 size={14} />
                       {employee.status === 'Active' ? 'إقالة' : 'تفعيل'}
                     </button>
                   )}
-                  {canDeleteEmployee && (
+                  {canDeleteEmployee && !employee.websiteSource && (
                     <button className="employee-card-action danger-text" type="button" onClick={() => openDeleteModal(employee)}>
                       <Trash2 size={14} />
                       حذف
@@ -635,11 +643,12 @@ export default function HR() {
               <p className="eyebrow">Employee File</p>
               <h2>أرشيف مستندات الموظف</h2>
             </div>
-            {selectedEmployee && <Button type="button" onClick={() => setDocumentOpen(true)}><UploadCloud /> رفع مستند</Button>}
+            {selectedEmployee && <SourceRecordActions record={selectedEmployee} />}
+            {selectedEmployee && !selectedEmployee.websiteSource && <Button type="button" onClick={() => setDocumentOpen(true)}><UploadCloud /> رفع مستند</Button>}
           </div>
           {selectedEmployee ? (
             <>
-              {(canTerminateEmployee || canDeleteEmployee) && (
+              {!selectedEmployee.websiteSource && (canTerminateEmployee || canDeleteEmployee) && (
                 <div className="employee-detail-actions">
                   {canTerminateEmployee && (
                     <Button type="button" variant="secondary" onClick={() => openTerminateModal(selectedEmployee)}>
@@ -734,7 +743,7 @@ export default function HR() {
           <Field label="الموظف" className="field-full">
             <select required value={attendanceForm.employeeId} onChange={event => setAttendanceForm({ ...attendanceForm, employeeId: event.target.value })}>
               <option value="">اختر الموظف</option>
-              {employees.map(employee => <option value={employee.id} key={employee.id}>{employee.name}</option>)}
+              {employees.filter(employee => !employee.websiteSource).map(employee => <option value={employee.id} key={employee.id}>{employee.name}</option>)}
             </select>
           </Field>
           <Field label="التاريخ"><input type="date" value={attendanceForm.date} onChange={event => setAttendanceForm({ ...attendanceForm, date: event.target.value })} /></Field>
@@ -801,7 +810,7 @@ export default function HR() {
           <Field label="الموظف" className="field-full">
             <select required value={leaveForm.employeeId} onChange={event => setLeaveForm({ ...leaveForm, employeeId: event.target.value })}>
               <option value="">اختر الموظف</option>
-              {employees.map(employee => <option value={employee.id} key={employee.id}>{employee.name}</option>)}
+              {employees.filter(employee => !employee.websiteSource).map(employee => <option value={employee.id} key={employee.id}>{employee.name}</option>)}
             </select>
           </Field>
           <Field label="نوع الطلب">

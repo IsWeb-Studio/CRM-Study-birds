@@ -2,6 +2,8 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { EyeOff, FileDown, Search, UserRound } from 'lucide-react';
 import { api, apiDownload, formatMoney } from '../api.js';
 import { Badge, Button, Card, Field, Spinner, Toast } from '../components/UI.jsx';
+import { useUnifiedCatalog } from '../components/UnifiedSectionContext.jsx';
+import SourceRecordActions from '../components/SourceRecordActions.jsx';
 
 const defaultFilters = {
   country: '',
@@ -60,7 +62,8 @@ function normalizePrograms(catalog) {
 }
 
 export default function UniversitiesPage() {
-  const [catalog, setCatalog] = useState({ programs: [] });
+  const [localCatalog, setCatalog] = useState({ programs: [] });
+  const catalog = useUnifiedCatalog(localCatalog);
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState(null);
   const [filters, setFilters] = useState(defaultFilters);
@@ -71,7 +74,7 @@ export default function UniversitiesPage() {
 
   useEffect(() => {
     let active = true;
-    api('/api/education-catalog')
+    api('/api/education-catalog?source=crm')
       .then(result => {
         if (active) setCatalog(result);
       })
@@ -337,6 +340,7 @@ export default function UniversitiesPage() {
             </div>
 
             <div className="catalog-actions">
+              <SourceRecordActions record={row.raw} />
               <Button variant="secondary" onClick={() => hideRow(row.id)} type="button">
                 <EyeOff size={15} />
                 إخفاء

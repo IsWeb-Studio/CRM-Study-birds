@@ -5,7 +5,7 @@ export const websiteSections = {
   finance: ['financials', 'paymentProofs', 'payouts', 'walletEntries'],
   inbox: ['support', 'community', 'communityPosts', 'moderationLog'],
   reception: ['arrival', 'events'],
-  universities: ['universities', 'universityAccounts'],
+  universities: ['universities', 'programs', 'universityAccounts'],
   programs: ['programs'],
   scholarships: ['scholarships'],
   catalogManagement: ['countries', 'universities', 'programs', 'studyFields'],

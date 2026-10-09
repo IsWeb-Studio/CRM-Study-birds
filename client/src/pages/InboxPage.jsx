@@ -1,4 +1,6 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useContext, useEffect, useMemo, useState } from 'react';
+import { UnifiedSectionContext, useUnifiedRecords } from '../components/UnifiedSectionContext.jsx';
+import { can } from '../permissions.js';
 import { Link2, MessageCircleMore, Search, Send, ShieldAlert, UserSquare2 } from 'lucide-react';
 import { api, formatDate } from '../api.js';
 import { Badge, Button, Card, Field, Spinner, Toast } from '../components/UI.jsx';
@@ -53,8 +55,13 @@ export default function InboxPage() {
   const { user } = useAuth();
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState(null);
-  const [allConversations, setAllConversations] = useState([]);
-  const [conversations, setConversations] = useState([]);
+  const [localAllConversations, setAllConversations] = useState([]);
+  const [localConversations, setConversations] = useState([]);
+  const withMessages = useUnifiedRecords(localAllConversations, 'messaging');
+  const allConversations = useUnifiedRecords(withMessages, 'mail');
+  const mergedMessages = useUnifiedRecords(localConversations, 'messaging');
+  const mergedConversations = useUnifiedRecords(mergedMessages, 'mail');
+  const { writesEnabled } = useContext(UnifiedSectionContext);
   const [channels, setChannels] = useState([]);
   const [messages, setMessages] = useState([]);
   const [users, setUsers] = useState([]);
@@ -65,6 +72,7 @@ export default function InboxPage() {
   const [channelFilter, setChannelFilter] = useState('');
   const [assignedUserFilter, setAssignedUserFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  const conversations = useMemo(() => mergedConversations.filter(row => (!channelFilter || row.channelType === channelFilter) && (!statusFilter || row.status === statusFilter) && (!assignedUserFilter || row.assignedUserId === assignedUserFilter)), [mergedConversations, channelFilter, statusFilter, assignedUserFilter]);
   const [activeView, setActiveView] = useState('all');
   const [selectedConversationIds, setSelectedConversationIds] = useState([]);
   const [bulkForm, setBulkForm] = useState({ assignedUserId: '', status: 'open', priority: 'medium', tags: '' });
@@ -102,6 +110,7 @@ export default function InboxPage() {
       setStudents(studentItems.items || []);
 
       setSelectedId(currentSelectedId => {
+        if (currentSelectedId.startsWith('website:')) return currentSelectedId;
         const items = conversationItems.items || [];
         if (!items.length) return '';
         if (currentSelectedId && items.some(item => item.id === currentSelectedId)) return currentSelectedId;
@@ -120,7 +129,14 @@ export default function InboxPage() {
       return;
     }
     try {
-      const items = await api(`/api/conversations/${conversationId}/messages`);
+      if (conversationId.startsWith('website:mail:')) {
+        const mail = allConversations.find(row => row.id === conversationId)?.websiteSource.record;
+        setMessages(mail ? [{id:mail.id,text:mail.message,direction:'inbound',createdAt:mail.receivedAt || mail.createdAt,messageType:'email',status:'received'}] : []);
+        return;
+      }
+      const websiteId = conversationId.startsWith('website:messaging:') ? conversationId.split(':')[2] : null;
+      const rows = await api(websiteId ? `/api/integrations/website/messaging/${websiteId}` : `/api/conversations/${conversationId}/messages`);
+      const items = websiteId ? rows.map(row => ({ id:row._id, text:row.body, direction:String(row.sender?._id || row.sender) === websiteId ? 'inbound' : 'outbound', createdAt:row.createdAt, messageType:'text', status:row.readAt ? 'read' : 'sent' })) : rows;
       setMessages(items || []);
     } catch (error) {
       setToast({ type: 'error', message: error.message });
@@ -300,6 +316,10 @@ export default function InboxPage() {
 
   const runBulkAction = async operation => {
     if (!selectedConversationIds.length) return;
+    if (selectedConversationIds.some(id => id.startsWith('website:'))) {
+      setToast({ type:'error', message:'إجراءات التصنيف الجماعي تخص قنوات CRM؛ اختر محادثات هذه القنوات فقط.' });
+      return;
+    }
 
     const payload = {
       ids: selectedConversationIds,
@@ -346,6 +366,16 @@ export default function InboxPage() {
   const sendMessage = async event => {
     event.preventDefault();
     if (!selected || (!composer.text.trim() && !composer.templateName.trim())) return;
+    if (selected.websiteSource?.resource === 'mail') return;
+    if (selected.websiteSource) {
+      if (!writesEnabled || !can(user, 'manageWebsite') || !composer.text.trim()) { setToast({ type:'error', message:'إرسال محادثة الموقع يحتاج صلاحية الكتابة ورسالة نصية.' }); return; }
+      try {
+        await api(`/api/integrations/website/messaging/${selected.websiteSource.id}`, { method:'POST', body:JSON.stringify({ body:composer.text.trim() }) });
+        setComposer({ text:'', templateName:'' }); await loadMessages(selected.id);
+        setToast({ message:'تم إرسال الرسالة بنجاح' });
+      } catch (error) { setToast({ type:'error', message:error.message }); }
+      return;
+    }
 
     try {
       await api(`/api/conversations/${selected.id}/messages`, {
@@ -367,6 +397,7 @@ export default function InboxPage() {
   const linkContact = async event => {
     event.preventDefault();
     if (!selected || !linkForm.contactId) return;
+    if (selected.websiteSource) return;
 
     try {
       await api(`/api/conversations/${selected.id}/link-contact`, {
@@ -383,6 +414,7 @@ export default function InboxPage() {
   const assignConversation = async event => {
     event.preventDefault();
     if (!selected) return;
+    if (selected.websiteSource) return;
 
     try {
       await api(`/api/conversations/${selected.id}/assign`, {
@@ -399,6 +431,7 @@ export default function InboxPage() {
   const updateConversationStatus = async event => {
     event.preventDefault();
     if (!selected) return;
+    if (selected.websiteSource) return;
 
     try {
       await api(`/api/conversations/${selected.id}/status`, {
@@ -415,6 +448,7 @@ export default function InboxPage() {
   const updateConversationClassification = async event => {
     event.preventDefault();
     if (!selected) return;
+    if (selected.websiteSource) return;
 
     try {
       await api(`/api/conversations/${selected.id}/classification`, {
@@ -718,7 +752,7 @@ export default function InboxPage() {
                 ))}
               </div>
 
-              <form className="stack-form" onSubmit={linkContact}>
+              {!selected.websiteSource && <><form className="stack-form" onSubmit={linkContact}>
                 <Field label="ربط المحادثة بملف موجود" hint="اختر النوع ثم ابحث بالاسم أو الهاتف أو البريد، وبعدها اختر السجل المناسب.">
                   <div className="form-grid">
                     <select
@@ -849,14 +883,16 @@ export default function InboxPage() {
                 </div>
               </form>
 
-              <form className="stack-form" onSubmit={sendMessage}>
-                <Field label="اسم قالب واتساب" hint="اتركه فارغًا لإرسال رسالة نصية عادية داخل نافذة المراسلة المسموح بها.">
+              </>}
+              {selected.websiteSource?.resource === 'mail' && <a className="btn btn-secondary" href={`mailto:${selected.contact.email}?subject=${encodeURIComponent('Re: ' + (selected.websiteSource.record.subject || ''))}`}>رد بالبريد</a>}
+              {selected.websiteSource?.resource !== 'mail' && <form className="stack-form" onSubmit={sendMessage}>
+                {!selected.websiteSource && <Field label="اسم قالب واتساب" hint="اتركه فارغًا لإرسال رسالة نصية عادية داخل نافذة المراسلة المسموح بها.">
                   <input
                     value={composer.templateName}
                     onChange={event => setComposer(current => ({ ...current, templateName: event.target.value }))}
                     placeholder="مثال: follow_up_template"
                   />
-                </Field>
+                </Field>}
                 <Field label="الرسالة">
                   <textarea
                     value={composer.text}
@@ -868,7 +904,7 @@ export default function InboxPage() {
                     <Send /> إرسال
                   </Button>
                 </div>
-              </form>
+              </form>}
             </>
           ) : (
             <div className="select-placeholder">

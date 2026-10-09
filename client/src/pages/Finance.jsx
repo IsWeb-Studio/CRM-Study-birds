@@ -1,4 +1,6 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useContext, useEffect, useMemo, useState } from 'react';
+import { UnifiedSectionContext, useUnifiedRecords } from '../components/UnifiedSectionContext.jsx';
+import SourceRecordActions from '../components/SourceRecordActions.jsx';
 import { useSearchParams } from 'react-router-dom';
 import { Banknote, CircleDollarSign, CreditCard, Eye, FilePlus2, FileText, Plus, ReceiptText, Search, Send, Trash2, WalletCards } from 'lucide-react';
 import { api, formatDate, formatMoney, resolveFileUrl } from '../api.js';
@@ -316,8 +318,10 @@ function ReceiptSheet({ payment, invoice }) {
 
 export default function Finance() {
   const { user } = useAuth();
+  const { writesEnabled } = useContext(UnifiedSectionContext);
   const [searchParams] = useSearchParams();
-  const [invoices, setInvoices] = useState([]);
+  const [localInvoices, setInvoices] = useState([]);
+  const invoices = useUnifiedRecords(localInvoices, 'financials');
   const [students, setStudents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState('');
@@ -610,6 +614,7 @@ export default function Finance() {
             <input value={query} onChange={event => setQuery(event.target.value)} placeholder="ابحث عن فاتورة أو سند..." />
           </div>
           {canCreateInvoice && <Button onClick={() => setInvoiceOpen(true)} type="button"><FilePlus2 /> فاتورة جديدة</Button>}
+          {writesEnabled && can(user, 'manageWebsite') && <SourceRecordActions label="فاتورة لطالب مرتبط" record={{ websiteSource:{resource:'financials',record:{}} }} />}
         </div>
 
         <div className="table-wrap">
@@ -658,7 +663,8 @@ export default function Finance() {
                   </td>
                   <td>
                     <div className="table-actions">
-                      <Button variant="ghost" type="button" onClick={() => openHistoryModal(invoice)}><Eye /> السجل</Button>
+                      <SourceRecordActions record={invoice} />
+                      {!invoice.websiteSource && <Button variant="ghost" type="button" onClick={() => openHistoryModal(invoice)}><Eye /> السجل</Button>}
                       {invoice.balance > 0 && canRecordPayment && !invoice.websiteSource?.readOnly ? (
                         <Button variant="ghost" type="button" onClick={() => openPaymentModal(invoice)}><Plus /> تسجيل دفعة</Button>
                       ) : (

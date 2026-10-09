@@ -2,6 +2,8 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Search } from 'lucide-react';
 import { api } from '../../api.js';
 import { Card, Spinner, Toast } from '../UI.jsx';
+import { useUnifiedCatalog } from '../UnifiedSectionContext.jsx';
+import SourceRecordActions from '../SourceRecordActions.jsx';
 
 function matchesQuery(query, values) {
   if (!query) return true;
@@ -42,7 +44,7 @@ function CatalogTable({ columns, rows, emptyText }) {
       <table className="catalog-table">
         <thead>
           <tr>
-            {columns.map(column => <th key={column.key}>{column.label}</th>)}
+            {columns.map(column => <th key={column.key}>{column.label}</th>)}<th>الإجراءات</th>
           </tr>
         </thead>
         <tbody>
@@ -53,10 +55,11 @@ function CatalogTable({ columns, rows, emptyText }) {
                   {column.render ? column.render(row) : row[column.key]}
                 </td>
               ))}
+              <td><SourceRecordActions record={row} /></td>
             </tr>
           )) : (
             <tr>
-              <td colSpan={columns.length} className="catalog-table-empty">{emptyText}</td>
+              <td colSpan={columns.length + 1} className="catalog-table-empty">{emptyText}</td>
             </tr>
           )}
         </tbody>
@@ -77,7 +80,8 @@ export default function CatalogListingPage({
 }) {
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState(null);
-  const [catalog, setCatalog] = useState({ summary: {}, universities: [], programs: [], scholarships: [] });
+  const [localCatalog, setCatalog] = useState({ summary: {}, universities: [], programs: [], scholarships: [] });
+  const catalog = useUnifiedCatalog(localCatalog);
   const [searchQuery, setSearchQuery] = useState('');
   const [filters, setFilters] = useState({});
 

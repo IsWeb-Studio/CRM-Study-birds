@@ -6,6 +6,8 @@ import { Badge, Button, Card, Field, Modal, Progress, Spinner, Toast } from '../
 import { useAuth } from '../auth.jsx';
 import { tr } from '../i18n.js';
 import { can } from '../permissions.js';
+import { useUnifiedRecords } from '../components/UnifiedSectionContext.jsx';
+import SourceRecordActions from '../components/SourceRecordActions.jsx';
 
 const tone = status => (status.includes('Acceptance') ? 'green' : status.includes('Rejected') ? 'red' : status.includes('Submitted') || status.includes('Review') ? 'blue' : 'amber');
 const seasons = ['Fall', 'Spring', 'Summer'];
@@ -72,7 +74,8 @@ function collectUniqueOptions(...groups) {
 export default function Admissions() {
   const { user } = useAuth();
   const [searchParams] = useSearchParams();
-  const [apps, setApps] = useState([]);
+  const [localApps, setApps] = useState([]);
+  const apps = useUnifiedRecords(localApps, 'applications');
   const [settings, setSettings] = useState(null);
   const [students, setStudents] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -100,6 +103,11 @@ export default function Admissions() {
   const canReviewDocument = can(user, 'reviewDocument');
   const canDeleteDocument = can(user, 'deleteDocument');
   const canManageFollowUp = can(user, 'manageApplicationFollowUp');
+  useEffect(() => {
+    if (!selected?.websiteSource) return;
+    const fresh = apps.find(row => row.id === selected.id);
+    if (fresh && fresh !== selected) setSelected(fresh);
+  }, [apps, selected]);
 
   const applySelection = applications => {
     const nextSelected = selected ? applications.find(item => item.id === selected.id) || applications[0] || null : applications[0] || null;
@@ -548,7 +556,8 @@ export default function Admissions() {
                 <div><span>رسوم التقديم</span><strong>{selected.applicationFeeStatus === 'Paid' ? 'مدفوع' : 'غير مدفوع'}</strong></div>
               </div>
 
-              <form className="form-grid admissions-edit-grid" data-application-form="edit" onSubmit={saveApplicationDetails}>
+              <SourceRecordActions record={selected} />
+              {!selected.websiteSource && <form className="form-grid admissions-edit-grid" data-application-form="edit" onSubmit={saveApplicationDetails}>
                 <Field label="الجامعة">
                   <select
                     required
@@ -654,7 +663,7 @@ export default function Admissions() {
                 <div className="form-actions field-full">
                   <Button type="submit"><Save /> حفظ بيانات الطلب</Button>
                 </div>
-              </form>
+              </form>}
 
               <div className="admissions-summary-grid">
                 <div className="summary-tile">

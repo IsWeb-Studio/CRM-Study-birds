@@ -3327,7 +3327,7 @@ async function prepareDb() {
 
 await prepareDb();
 
-app.get('/api/health', (_req, res) => res.json({ status: 'ok', time: now(), websiteIntegration: 3, buildCommit: process.env.RENDER_GIT_COMMIT || process.env.VERCEL_GIT_COMMIT_SHA || null }));
+app.get('/api/health', (_req, res) => res.json({ status: 'ok', time: now(), websiteIntegration: 4, buildCommit: process.env.RENDER_GIT_COMMIT || process.env.VERCEL_GIT_COMMIT_SHA || null }));
 
 app.post('/api/auth/login', async (req, res) => {
   const { email, password } = req.body || {};
