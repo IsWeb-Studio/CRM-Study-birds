@@ -599,7 +599,7 @@ export default function Admissions() {
                   </select>
                 </Field>
                 <Field label="حالة الطلب">
-                  <select disabled={!canUpdateStatus} value={detailForm.status} onChange={event => setDetailForm({ ...detailForm, status: event.target.value })}>
+                  <select disabled={!canUpdateStatus || selected?.websiteSource?.readOnly} value={detailForm.status} onChange={event => setDetailForm({ ...detailForm, status: event.target.value })}>
                     {applicationStatuses.map(status => <option key={status} value={status}>{tr(status)}</option>)}
                   </select>
                 </Field>
@@ -722,7 +722,7 @@ export default function Admissions() {
                           <Badge tone={stage.done ? 'green' : 'blue'}>{stage.done ? 'مكتملة' : 'مفتوحة'}</Badge>
                         </div>
                       </div>
-                      {canManageFollowUp && (
+                      {canManageFollowUp && !selected?.websiteSource?.readOnly && (
                         <div className="task-actions">
                           <Button type="button" variant={stage.done ? 'secondary' : 'ghost'} onClick={() => toggleFollowUpStage(stage)}>
                             <Clock3 /> {stage.done ? 'إعادة فتح المرحلة' : 'تعليم كمكتملة'}
@@ -739,7 +739,7 @@ export default function Admissions() {
                   <h3>المستندات الحالية</h3>
                   <span>كل طلب له مستنداته الخاصة بصورة مستقلة.</span>
                 </div>
-                {canUploadDocument && <Button onClick={() => setUploadOpen(true)} type="button"><FileUp /> رفع مستند</Button>}
+                {canUploadDocument && !selected?.websiteSource?.readOnly && <Button onClick={() => setUploadOpen(true)} type="button"><FileUp /> رفع مستند</Button>}
               </div>
 
               <div className="document-grid">
@@ -761,7 +761,7 @@ export default function Admissions() {
                     <div className="document-actions">
                       {doc.url ? <a target="_blank" rel="noreferrer" href={resolveFileUrl(doc)}>فتح</a> : <Badge tone="neutral">بدون ملف</Badge>}
                       {canReviewDocument && <button className="icon-btn small" onClick={() => openReview(doc)} type="button"><ShieldCheck size={14} /></button>}
-                      {canDeleteDocument && <button className="icon-btn small danger" onClick={() => deleteDocument(doc)} type="button"><Trash2 size={14} /></button>}
+                      {canDeleteDocument && !selected?.websiteSource?.readOnly && <button className="icon-btn small danger" onClick={() => deleteDocument(doc)} type="button"><Trash2 size={14} /></button>}
                     </div>
                   </article>
                 ))}

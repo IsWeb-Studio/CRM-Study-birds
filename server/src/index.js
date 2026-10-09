@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import { createWebsiteClient, mountWebsiteRoutes, websiteConfig } from './integrations/website/website.service.js';
+import { mountWebsiteWorkflow, mountWebsiteEmail, startWebsitePolling } from './integrations/website/website.workflow.js';
 const websiteClient = createWebsiteClient();
 import express from 'express';
 import cors from 'cors';
@@ -1455,7 +1456,7 @@ function enrichInvoice(db, invoice) {
   const application = applications.find(item => item.studentId === invoice.studentId) || null;
   const consultant = student?.consultantId ? employees.find(item => item.id === student.consultantId) || null : null;
   const financials = summarizeInvoiceFinancials(invoice);
-  const paid = payments.reduce((sum, payment) => sum + money(payment.amount), 0);
+  const paid = invoice.websiteSource?.readOnly ? money(invoice.websiteSource.paid) : payments.reduce((sum, payment) => sum + money(payment.amount), 0);
   const balance = Math.max(0, financials.total - paid);
   const installments = sanitizeInstallments(invoice.installments).map(installment => {
     const matchingPayments = payments.filter(payment => payment.installmentId === installment.id);
@@ -3326,7 +3327,7 @@ async function prepareDb() {
 
 await prepareDb();
 
-app.get('/api/health', (_req, res) => res.json({ status: 'ok', time: now() }));
+app.get('/api/health', (_req, res) => res.json({ status: 'ok', time: now(), websiteIntegration: 2, buildCommit: process.env.RENDER_GIT_COMMIT || process.env.VERCEL_GIT_COMMIT_SHA || null }));
 
 app.post('/api/auth/login', async (req, res) => {
   const { email, password } = req.body || {};
@@ -3536,6 +3537,8 @@ app.get('/api/integrations/meta/oauth/callback', async (req, res) => {
   }
 });
 
+mountWebsiteEmail(app, { mutateDb });
+
 app.use('/api', requireAuth, async (req, res, next) => {
   const db = await readDb();
   const user = db.users.find(item => item.id === req.user.sub && item.companyId === req.user.companyId);
@@ -3554,7 +3557,8 @@ app.use('/api', requireAuth, async (req, res, next) => {
   next();
 });
 
-mountWebsiteRoutes(app, { allowModule, client: websiteClient, readDb, mutateDb });
+mountWebsiteRoutes(app, { allowModule, allowAction, client: websiteClient, readDb, mutateDb });
+const websiteWorkflow = mountWebsiteWorkflow(app, { allowModule, allowRoles, client: websiteClient, readDb, mutateDb });
 
 app.get('/api/me', async (req, res) => {
   const db = await readDb();
@@ -4103,7 +4107,7 @@ app.get('/api/settings', async (_req, res) => {
   const settings = { ...db.settings };
   settings.documentChecklistTemplates = sanitizeChecklistTemplates(settings.documentChecklistTemplates || []);
   settings.applicationWorkflowTemplates = sanitizeWorkflowTemplates(settings.applicationWorkflowTemplates || []);
-  const websiteEnabled = websiteConfig().enabled;
+  const websiteEnabled = process.env.STUDY_BIRDS_ENABLED === 'true';
   let catalog = db.educationCatalog || {};
   if (websiteEnabled) {
     try { catalog = await websiteClient.catalog(); }
@@ -4151,7 +4155,7 @@ app.get('/api/settings', async (_req, res) => {
 
 app.get('/api/education-catalog', allowAnyModule('universities', 'programs', 'scholarships'), async (_req, res) => {
   const db = await readDb();
-  const websiteEnabled = websiteConfig().enabled;
+  const websiteEnabled = process.env.STUDY_BIRDS_ENABLED === 'true';
   const catalog = websiteEnabled ? { ...(await websiteClient.catalog()), scholarships: db.educationCatalog?.scholarships || [] } : sanitizeEducationCatalog(db.educationCatalog || {});
   const catalogLinks = buildEducationCatalogLinks(catalog);
   const effectiveCountries = getEffectiveCatalogCountries(catalog, catalogLinks);
@@ -5208,6 +5212,7 @@ app.patch('/api/applications/:id', allowAction('updateApplicationStatus'), async
   const result = await mutateDb(db => {
     const application = db.applications.find(item => item.id === req.params.id && item.companyId === req.user.companyId);
     if (!application) throw Object.assign(new Error('طلب القبول غير موجود'), { status: 404 });
+    if (application.websiteSource?.readOnly) throw Object.assign(new Error('عدّل طلب الموقع من قسم طلبات الموقع للحفاظ على تطابق الحالة.'), { status: 409 });
     const nextStatus = req.body.status || application.status;
     const nextOfferType = req.body.offerType ?? application.offerType ?? '';
     const nextOfferConditions = req.body.offerConditions ?? application.offerConditions ?? '';
@@ -5244,6 +5249,7 @@ app.patch('/api/applications/:id/follow-up/:stageId', allowAction('manageApplica
   const result = await mutateDb(db => {
     const application = db.applications.find(item => item.id === req.params.id && item.companyId === req.user.companyId);
     if (!application) throw Object.assign(new Error('طلب القبول غير موجود'), { status: 404 });
+    if (application.websiteSource?.readOnly) throw Object.assign(new Error('عدّل طلب الموقع من قسم طلبات الموقع للحفاظ على تطابق الحالة.'), { status: 409 });
 
     const workflowState = computeApplicationWorkflowState(application, db.settings);
     const stage = (workflowState.effectiveFollowUpStages || []).find(item => item.id === req.params.stageId);
@@ -5286,6 +5292,7 @@ app.post('/api/applications/:id/documents', allowAction('uploadDocument'), uploa
   const result = await mutateDb(db => {
     const application = db.applications.find(item => item.id === req.params.id && item.companyId === req.user.companyId);
     if (!application) throw Object.assign(new Error('طلب القبول غير موجود'), { status: 404 });
+    if (application.websiteSource?.readOnly) throw Object.assign(new Error('عدّل طلب الموقع من قسم طلبات الموقع للحفاظ على تطابق الحالة.'), { status: 409 });
 
     const documentType = req.body.type || 'Other';
     const latestVersion = Math.max(
@@ -5335,6 +5342,7 @@ app.patch('/api/applications/:appId/documents/:docId', allowAction('reviewDocume
   const result = await mutateDb(db => {
     const application = db.applications.find(item => item.id === req.params.appId);
     if (!application) throw Object.assign(new Error('طلب القبول غير موجود'), { status: 404 });
+    if (application.websiteSource?.readOnly) throw Object.assign(new Error('عدّل طلب الموقع من قسم طلبات الموقع للحفاظ على تطابق الحالة.'), { status: 409 });
     const document = application.documents.find(item => item.id === req.params.docId);
     if (!document) throw Object.assign(new Error('المستند غير موجود'), { status: 404 });
 
@@ -5360,6 +5368,7 @@ app.delete('/api/applications/:appId/documents/:docId', allowAction('deleteDocum
   await mutateDb(db => {
     const application = db.applications.find(item => item.id === req.params.appId);
     if (!application) throw Object.assign(new Error('طلب القبول غير موجود'), { status: 404 });
+    if (application.websiteSource?.readOnly) throw Object.assign(new Error('عدّل طلب الموقع من قسم طلبات الموقع للحفاظ على تطابق الحالة.'), { status: 409 });
     const index = application.documents.findIndex(item => item.id === req.params.docId);
     if (index < 0) throw Object.assign(new Error('المستند غير موجود'), { status: 404 });
     const [document] = application.documents.splice(index, 1);
@@ -5855,8 +5864,9 @@ app.post('/api/invoices', allowAction('createInvoice'), async (req, res) => {
 app.post('/api/invoices/:id/payments', allowAction('recordPayment'), upload.single('attachment'), async (req, res) => {
   const attachment = req.file ? await storeUploadedFile(req.file, { folder: 'receipts' }) : null;
   const result = await mutateDb(db => {
-    const invoice = db.invoices.find(item => item.id === req.params.id);
+    const invoice = db.invoices.find(item => item.id === req.params.id && item.companyId === req.user.companyId);
     if (!invoice) throw Object.assign(new Error('الفاتورة غير موجودة'), { status: 404 });
+    if (invoice.websiteSource?.readOnly) throw Object.assign(new Error('فاتورة الموقع للعرض؛ تُدار دفعاتها من قسم طلبات الموقع.'), { status: 409 });
     const before = enrichInvoice(db, invoice);
     const amount = money(req.body.amount);
     if (amount <= 0) throw Object.assign(new Error('المبلغ مطلوب'), { status: 400 });
@@ -5948,6 +5958,7 @@ app.delete('/api/invoices/:id', allowAction('deleteInvoice'), async (req, res) =
   const result = await mutateDb(async db => {
     const invoiceIndex = db.invoices.findIndex(item => item.id === req.params.id && item.companyId === req.user.companyId);
     if (invoiceIndex === -1) throw Object.assign(new Error('الفاتورة غير موجودة'), { status: 404 });
+    if (db.invoices[invoiceIndex].websiteSource?.readOnly) throw Object.assign(new Error('فاتورة الموقع مرتبطة للعرض ولا يمكن حذفها من هذا القسم.'), { status: 409 });
 
     const [invoice] = db.invoices.splice(invoiceIndex, 1);
     const removedPayments = db.payments.filter(item => item.invoiceId === invoice.id && item.companyId === req.user.companyId);
@@ -6030,6 +6041,7 @@ if (fs.existsSync(clientDist)) {
 
 if (!isVercelRuntime) {
   // Warm the shared state while the service starts, before the first login request arrives.
+  startWebsitePolling(websiteWorkflow);
   warmDbCache().catch(error => console.error('Database cache warm-up failed:', error.message));
   app.listen(port, () => console.log(`Study Birds CRM API running on http://localhost:${port}`));
 }

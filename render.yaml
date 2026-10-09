@@ -46,3 +46,18 @@ services:
         sync: false
       - key: META_WEBHOOK_URL
         sync: false
+
+      - key: STUDY_BIRDS_ENABLED
+        value: false
+      - key: STUDY_BIRDS_API_URL
+        sync: false
+      - key: STUDY_BIRDS_API_TOKEN
+        sync: false
+      - key: STUDY_BIRDS_ALLOW_WRITES
+        value: false
+      - key: STUDY_BIRDS_SYNC_ENABLED
+        value: false
+      - key: STUDY_BIRDS_COMPANY_ID
+        sync: false
+      - key: STUDY_BIRDS_MAIL_SECRET
+        sync: false

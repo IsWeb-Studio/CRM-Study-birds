@@ -659,12 +659,12 @@ export default function Finance() {
                   <td>
                     <div className="table-actions">
                       <Button variant="ghost" type="button" onClick={() => openHistoryModal(invoice)}><Eye /> السجل</Button>
-                      {invoice.balance > 0 && canRecordPayment ? (
+                      {invoice.balance > 0 && canRecordPayment && !invoice.websiteSource?.readOnly ? (
                         <Button variant="ghost" type="button" onClick={() => openPaymentModal(invoice)}><Plus /> تسجيل دفعة</Button>
                       ) : (
                         <span className="paid-mark">{invoice.balance > 0 ? 'مغلق للمحاسب' : 'تمت التسوية'}</span>
                       )}
-                      {canDeleteInvoice && (
+                      {canDeleteInvoice && !invoice.websiteSource?.readOnly && (
                         <Button variant="ghost" type="button" onClick={() => deleteInvoice(invoice)}><Trash2 /> حذف</Button>
                       )}
                     </div>

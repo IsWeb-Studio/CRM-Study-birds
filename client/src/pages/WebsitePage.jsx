@@ -1,6 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { api, formatDate } from '../api.js';
 import { Card, Button, Badge, Spinner, Modal } from '../components/UI.jsx';
+import WebsiteOperations from './WebsiteOperations.jsx';
+import WebsiteWorkflowPanel, { LinkWebsiteRecordButton } from './WebsiteWorkflowPanel.jsx';
+import { useAuth } from '../auth.jsx';
+import { can } from '../permissions.js';
 
 const labels = { status: 'الحالة', detailedStatus: 'مرحلة القبول', note: 'ملاحظة للطالب', staffNote: 'ملاحظة الموظف', adminNote: 'ملاحظة الإدارة', reviewNote: 'ملاحظة المراجعة', message: 'الرد', notes: 'ملاحظات', applicationStatus: 'حالة التقديم', assignedTo: 'معرّف الموظف بالموقع', type: 'نوع المستند', result: 'نتيجة الاستشارة', summary: 'ملخص الاستشارة', nextSteps: 'الخطوات التالية' };
 const actionLabels = { status: 'تحديث الحالة', update: 'تحديث الطلب', review: 'مراجعة', reply: 'رد على التذكرة', assign: 'تعيين مسؤول', requestDocument: 'طلب مستند إضافي', outcome: 'نتيجة الاستشارة' };
@@ -25,8 +29,9 @@ function title(row) { return text(row.program || row.serviceTitle || row.scholar
 const details = { name: 'الاسم', email: 'البريد', phone: 'الهاتف', status: 'الحالة', detailedStatus: 'مرحلة الطلب', university: 'الجامعة', program: 'البرنامج', student: 'الطالب', partner: 'الوكيل', parent: 'ولي الأمر', serviceTitle: 'الخدمة', notes: 'الملاحظات', adminNote: 'ملاحظة الإدارة', subject: 'الموضوع', message: 'الرسالة', airport: 'المطار', flightNumber: 'رقم الرحلة', arrivalDate: 'موعد الوصول', createdAt: 'تاريخ الإنشاء', updatedAt: 'آخر تحديث', amount: 'المبلغ', price: 'السعر', balance: 'الرصيد', documents: 'المستندات', suggestedFields: 'مجالات مقترحة', suggestedCountries: 'دول مقترحة' };
 
 export default function WebsitePage() {
+  const { user } = useAuth();
   const [connection, setConnection] = useState(null);
-  const [resource, setResource] = useState('applications');
+  const [resource, setResource] = useState(() => new URLSearchParams(window.location.search).get('resource') || 'applications');
   const [result, setResult] = useState(null);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
@@ -42,8 +47,9 @@ export default function WebsitePage() {
     catch (e) { setError(e.message); }
     finally { setLoading(false); }
   }
-  useEffect(() => { api('/api/integrations/website/status').then(setConnection).catch(e => setError(e.message)); }, []);
+  useEffect(() => { api('/api/integrations/website/status').then(data => setConnection({ ...data, writesEnabled: data.writesEnabled && can(user, 'manageWebsite') })).catch(e => setError(e.message)); }, [user]);
   useEffect(() => { if (connection?.ready) load(resource); }, [resource, connection?.ready]);
+  useEffect(() => { const id = new URLSearchParams(window.location.search).get('id'); const row = result?.rows?.find(row => row._id === id); if (row) start(row); }, [result]);
   const rows = useMemo(() => (result?.rows || []).filter(row => [person(row), title(row), row.status, row._id, row.email, row.phone].join(' ').toLowerCase().includes(search.trim().toLowerCase())), [result, search]);
   async function test() {
     setBusy(true); setError(''); setNotice('');
@@ -101,10 +107,13 @@ export default function WebsitePage() {
       {result?.completeness === 'endpoint-limit' && <p className="website-hint">هذه قائمة السجلات التي أتاحتها واجهة الموقع؛ بعض الأقسام تضع حدًا لعدد السجلات.</p>}
       <div className="website-table-wrap"><table className="website-table"><thead><tr><th>الطالب / مقدم الطلب</th><th>الخدمة / البرنامج</th><th>الحالة</th><th>التاريخ</th><th>التفاصيل</th></tr></thead><tbody>{rows.map((row, index) => <tr key={row._id || index}><td>{person(row)}</td><td>{title(row)}</td><td>{statusLabels[row.detailedStatus || row.status] || row.status || '—'}</td><td>{formatDate(row.createdAt)}</td><td><Button variant="secondary" onClick={() => start(row)}>عرض</Button></td></tr>)}</tbody></table></div>{!rows.length && !error && <p>لا توجد سجلات لعرضها.</p>}</>}
     </Card>
-    <Card><h3>حدود الربط الحالية</h3><p>رسائل «تواصل معنا» تحتاج ربط صندوق البريد. محادثات الموقع مرتبطة بحساب المشارك وصلاحياته. التأمين والمعادلة يُداران ضمن ملف الطالب، ولا يُعاملان كطلبات مستقلة.</p></Card>
+    {connection && <WebsiteWorkflowPanel connection={connection} resource={resource} onRefresh={() => load()} />}
+    {connection?.writesEnabled && result?.editFields?.length > 0 && <Button onClick={() => setSelected({})}>إضافة سجل جديد إلى الموقع</Button>}
     <Modal open={Boolean(selected)} onClose={() => { if (!busy) setSelected(null); }} title="تفاصيل سجل الموقع" size="lg">
       {selected && <><p>رقم السجل: {selected._id || '—'}</p><dl className="website-details">{Object.entries(details).filter(([key]) => selected[key] != null).map(([key, label]) => <div key={key}><dt>{label}</dt><dd>{key === 'status' || key === 'detailedStatus' ? statusLabels[selected[key]] || text(selected[key]) : text(selected[key])}</dd></div>)}</dl>
       {error && <div role="alert" className="website-error">{error}</div>}
+      <LinkWebsiteRecordButton resource={resource} record={selected} />
+      <WebsiteOperations resource={resource} record={selected} editFields={result?.editFields || []} writesEnabled={connection?.writesEnabled} onSaved={() => { setSelected(null); load(); }} />
       {['documents', 'paymentProofs'].includes(resource) && <Button disabled={busy} variant="secondary" onClick={() => openFile(resource === 'documents' ? 'documents' : 'payment-proofs', selected._id)}>فتح الملف</Button>}
       {Array.isArray(selected.documents) && selected.documents.filter(doc => doc && typeof doc === 'object' && doc._id).map(doc => <Button key={doc._id} disabled={busy} variant="secondary" onClick={() => openFile('documents', doc._id)}>{doc.fileName || doc.type || 'فتح مستند'}</Button>)}
       {connection?.writesEnabled && allowedActions.length > 0 && <form onSubmit={save}><label className="field"><span>الإجراء</span><select value={operation} disabled={busy} onChange={e => choose(e.target.value)}><option value="">اختر إجراء</option>{allowedActions.map(key => <option key={key} value={key}>{actionLabels[key]}</option>)}</select></label>

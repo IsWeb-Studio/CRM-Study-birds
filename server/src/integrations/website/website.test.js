@@ -70,17 +70,17 @@ test('private attachment link requests do not expose API credentials', async () 
 });
 test('route access uses CRM module permissions and disabled writes never reach website or CRM', async () => {
   const routes = [];
-  const app = { get: (...args) => routes.push(args), post: (...args) => routes.push(args) };
+  const app = { get: (...args) => routes.push(args), post: (...args) => routes.push(args), put: (...args) => routes.push(args) };
   let permission;
   let writes = 0;
   const previous = process.env.STUDY_BIRDS_ALLOW_WRITES;
   process.env.STUDY_BIRDS_ALLOW_WRITES = 'false';
   try {
-    mountWebsiteRoutes(app, { allowModule: module => { permission = module; return () => {}; }, client: { action: async () => { writes++; } }, readDb: async () => ({}), mutateDb: async () => { writes++; } });
+    mountWebsiteRoutes(app, { allowAction: () => () => {}, allowModule: module => { permission = module; return () => {}; }, client: { action: async () => { writes++; } }, readDb: async () => ({}), mutateDb: async () => { writes++; } });
     assert.equal(permission, 'website');
     const writeRoute = routes.find(row => row[0].endsWith('/:action'));
     let error;
-    await writeRoute[2]({ params: { resource: 'applications', id, action: 'status' }, body: {}, user: {} }, {}, e => { error = e; });
+    await writeRoute.at(-1)({ params: { resource: 'applications', id, action: 'status' }, body: {}, user: {} }, {}, e => { error = e; });
     assert.equal(error.status, 403);
     assert.equal(writes, 0);
   } finally {
@@ -89,17 +89,17 @@ test('route access uses CRM module permissions and disabled writes never reach w
 });
 test('successful gateway action keeps independent CRM records intact and audits the actor', async () => {
   const routes = [];
-  const app = { get: (...args) => routes.push(args), post: (...args) => routes.push(args) };
+  const app = { get: (...args) => routes.push(args), post: (...args) => routes.push(args), put: (...args) => routes.push(args) };
   const db = { students: [{ id: 'local-student' }], applications: [{ id: 'local-application' }], educationCatalog: { programs: [{ id: 'local-program' }] } };
   const snapshot = JSON.stringify(db);
   let remoteCalls = 0;
   const previous = process.env.STUDY_BIRDS_ALLOW_WRITES;
   process.env.STUDY_BIRDS_ALLOW_WRITES = 'true';
   try {
-    mountWebsiteRoutes(app, { allowModule: () => () => {}, client: { action: async () => { remoteCalls++; return { updated: true }; } }, readDb: async () => db, mutateDb: async fn => fn(db) });
+    mountWebsiteRoutes(app, { allowAction: () => () => {}, allowModule: () => () => {}, client: { action: async () => { remoteCalls++; return { updated: true }; } }, readDb: async () => db, mutateDb: async fn => fn(db) });
     const route = routes.find(row => row[0].endsWith('/:action'));
     let error;
-    await route[2]({ params: { resource: 'applications', id, action: 'status' }, body: { detailedStatus: 'submitted' }, user: { companyId: 'company', sub: 'actor' } }, { json: data => assert.equal(data.updated, true) }, e => { error = e; });
+    await route.at(-1)({ params: { resource: 'applications', id, action: 'status' }, body: { detailedStatus: 'submitted' }, user: { companyId: 'company', sub: 'actor' } }, { json: data => assert.equal(data.updated, true) }, e => { error = e; });
     assert.equal(error, undefined);
     assert.equal(remoteCalls, 1);
     const { websiteIntegrationLog, ...independent } = db;

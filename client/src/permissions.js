@@ -49,6 +49,7 @@ export const moduleLabels = {
 };
 
 export const actionPermissions = {
+  manageWebsite: ['admin', 'management'],
   createLead: ['admin', 'management', 'consultant', 'reception'],
   editLead: ['admin', 'management', 'consultant', 'reception'],
   deleteLead: ['admin', 'management'],
@@ -75,6 +76,7 @@ export const actionPermissions = {
 };
 
 export const actionLabels = {
+  manageWebsite: 'إدارة بيانات الموقع المرتبط',
   createLead: 'إضافة عميل محتمل',
   editLead: 'تعديل العملاء المحتملين',
   deleteLead: 'حذف العملاء المحتملين',

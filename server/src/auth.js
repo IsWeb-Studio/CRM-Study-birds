@@ -28,6 +28,7 @@ const modulePermissions = {
 };
 
 const actionPermissions = {
+  manageWebsite: ['admin', 'management'],
   createLead: ['admin', 'management', 'consultant', 'reception'],
   editLead: ['admin', 'management', 'consultant', 'reception'],
   deleteLead: ['admin', 'management'],

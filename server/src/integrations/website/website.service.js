@@ -24,6 +24,12 @@ export const websiteResources = {
   orientation: { label: 'نتائج اختبار التوجيه', path: '/admin/student-orientation-results' },
   favorites: { label: 'اهتمامات الطلاب', path: '/admin/student-favorites' },
   community: { label: 'بلاغات المجتمع', path: '/admin/community-reports' },
+  countries: { label: 'إدارة الدول', path: '/admin/countries', editFields: ['name', 'code', 'heroTitle', 'heroSubtitle', 'heroImage', 'description'] },
+  universities: { label: 'إدارة الجامعات', path: '/universities', detail: '/universities', editFields: ['name', 'country', 'city', 'language', 'overview', 'logo', 'featured', 'isPartnerInstitution'] },
+  programs: { label: 'إدارة البرامج', path: '/programs', detail: '/programs', editFields: ['title', 'university', 'degreeLevel', 'fieldOfStudy', 'language', 'duration', 'tuition', 'partnerTuition', 'summary', 'featured'] },
+  contentServices: { label: 'محتوى الخدمات', path: '/admin/our-services', editFields: ['title', 'description', 'detailBody', 'price', 'durationDays', 'image'] },
+  faqs: { label: 'الأسئلة الشائعة', path: '/admin/faqs', editFields: ['question', 'answer'] },
+  knowledge: { label: 'قاعدة المعرفة', path: '/admin/knowledge-base', editFields: ['title', 'body', 'category', 'summary', 'published'] },
 };
 
 const fail = (message, status = 400) => Object.assign(new Error(message), { status });
@@ -101,7 +107,8 @@ export function createWebsiteClient({ config = () => websiteConfig(), fetchImpl 
     const def = websiteResources[key];
     if (!def) throw fail('قسم غير معروف.', 404);
     const result = await list(def.path, def.collection);
-    return { ...result, source: 'study-birds', fetchedAt: new Date().toISOString(), completeness: result.paginated ? 'paginated' : 'endpoint-limit', detailSupported: Boolean(def.detail), actions: def.actions || {} };
+    if (key === 'visaCases') result.rows = result.rows.map(row => ({ ...row, _id: row.applicationId }));
+    return { ...result, source: 'study-birds', fetchedAt: new Date().toISOString(), completeness: result.paginated ? 'paginated' : 'endpoint-limit', detailSupported: Boolean(def.detail), editFields: def.editFields || [], actions: def.actions || {} };
   }
   async function detail(key, id) {
     assertId(id);
@@ -131,13 +138,55 @@ export function createWebsiteClient({ config = () => websiteConfig(), fetchImpl 
     if (!['documents', 'payment-proofs', 'support-attachments'].includes(kind)) throw fail('نوع ملف غير مسموح.');
     return request(`/${kind}/${id}/access`, { method: 'POST' });
   }
-  return { request, catalog, resource, detail, action, studentService, attachment };
+  async function section(id, key) {
+    assertId(id);
+    if (!['assignment', 'post-admission', 'visa-case'].includes(key)) throw fail('قسم غير مسموح.');
+    return request(`/applications/${id}/${key}`);
+  }
+  async function editResource(key, id, payload) {
+    const def = websiteResources[key];
+    if (!def?.editFields?.length) throw fail('هذا القسم لا يدعم تحرير المحتوى.');
+    if (id) assertId(id);
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload) || !Object.keys(payload).length || Object.keys(payload).some(field => !def.editFields.includes(field))) throw fail('حقول المحتوى غير مسموحة.');
+    let body = { ...payload };
+    if (id) {
+      // Some website controllers rebuild the whole entity. Preserve fields outside this editor.
+      const existing = def.detail ? await detail(key, id) : (await resource(key)).rows.find(row => row._id === id);
+      if (!existing) throw fail('السجل غير موجود.', 404);
+      body = { ...existing, ...payload };
+      for (const field of ['_id', '__v', 'createdAt', 'updatedAt', 'slug', 'offeredAt', 'relatedPrograms']) delete body[field];
+      if (body.country && typeof body.country === 'object') body.country = body.country._id;
+      if (body.university && typeof body.university === 'object') body.university = body.university._id;
+    }
+    const result = await request(`${def.path}${id ? `/${id}` : ''}`, { method: id ? 'PUT' : 'POST', body });
+    cachedCatalog = null; cacheUntil = 0;
+    return result;
+  }
+  return { request, catalog, resource, detail, action, studentService, attachment, section, editResource };
 }
 function assertId(id) { if (!/^[a-f\d]{24}$/i.test(id || '')) throw fail('معرّف الموقع غير صالح.'); }
 
-export function mountWebsiteRoutes(app, { allowModule, client, readDb, mutateDb }) {
+export function mountWebsiteRoutes(app, { allowModule, allowAction, client, readDb, mutateDb }) {
   const access = allowModule('website');
+  const writeAccess = allowAction('manageWebsite');
   const wrap = handler => async (req, res, next) => { try { await handler(req, res); } catch (error) { next(error); } };
+  async function remoteWrite(req, action, perform) {
+    if (process.env.STUDY_BIRDS_ALLOW_WRITES !== 'true') throw fail('تعديل بيانات الموقع غير مفعّل على خادم CRM.', 403);
+    const id = randomUUID();
+    await mutateDb(db => {
+      db.websiteIntegrationLog ||= [];
+      db.websiteIntegrationLog.unshift({ id, companyId: req.user.companyId, userId: req.user.sub, resource: req.params.resource || req.params.kind || 'messaging', websiteId: req.params.id || '', action, status: 'pending', at: new Date().toISOString() });
+      db.websiteIntegrationLog = db.websiteIntegrationLog.slice(0, 1000);
+    });
+    try {
+      const data = await perform();
+      await mutateDb(db => { const log = db.websiteIntegrationLog.find(row => row.id === id); if (log) log.status = 'completed'; });
+      return data;
+    } catch (error) {
+      await mutateDb(db => { const log = db.websiteIntegrationLog.find(row => row.id === id); if (log) { log.status = 'failed-or-unconfirmed'; log.message = error.message; } });
+      throw error;
+    }
+  }
   app.get('/api/integrations/website/status', access, wrap(async (_req, res) => {
     const c = websiteConfig();
     res.json({ enabled: c.enabled, ready: c.ready, apiUrl: c.baseUrl || '', resources: Object.entries(websiteResources).map(([key, value]) => ({ key, label: value.label })), writesEnabled: process.env.STUDY_BIRDS_ALLOW_WRITES === 'true', limitations: ['contact-email', 'messaging-participants', 'endpoint-limits'] });
@@ -149,29 +198,32 @@ export function mountWebsiteRoutes(app, { allowModule, client, readDb, mutateDb 
   }));
   app.get('/api/integrations/website/catalog', access, wrap(async (_req, res) => res.json(await client.catalog())));
   app.get('/api/integrations/website/students/:id/:kind', access, wrap(async (req, res) => res.json(await client.studentService(req.params.id, req.params.kind))));
+  app.put('/api/integrations/website/students/:id/:kind', access, writeAccess, wrap(async (req, res) => {
+    if (process.env.STUDY_BIRDS_ALLOW_WRITES !== 'true') throw fail('تعديل الموقع غير مفعّل.', 403);
+    res.json(await remoteWrite(req, 'student-service', () => client.studentService(req.params.id, req.params.kind, req.body)));
+  }));
+  app.get('/api/integrations/website/applications/:id/:section', access, wrap(async (req, res) => res.json(await client.section(req.params.id, req.params.section))));
+  app.get('/api/integrations/website/messaging/contacts', access, wrap(async (_req, res) => res.json(await client.request('/mobile-workspace/contacts'))));
+  app.get('/api/integrations/website/messaging/:id', access, wrap(async (req, res) => { assertId(req.params.id); res.json(await client.request(`/mobile-workspace/messages?recipient=${req.params.id}`)); }));
+  app.post('/api/integrations/website/messaging/:id', access, writeAccess, wrap(async (req, res) => {
+    assertId(req.params.id);
+    if (process.env.STUDY_BIRDS_ALLOW_WRITES !== 'true') throw fail('تعديل الموقع غير مفعّل.', 403);
+    if (typeof req.body.body !== 'string' || !req.body.body.trim() || req.body.body.length > 4000) throw fail('رسالة غير صالحة.');
+    res.json(await remoteWrite(req, 'message', () => client.request('/mobile-workspace/messages', { method: 'POST', body: { recipient: req.params.id, body: req.body.body } })));
+  }));
+  for (const method of ['post', 'put']) app[method](`/api/integrations/website/content/:resource${method === 'put' ? '/:id' : ''}`, access, writeAccess, wrap(async (req, res) => {
+    if (process.env.STUDY_BIRDS_ALLOW_WRITES !== 'true') throw fail('تعديل الموقع غير مفعّل.', 403);
+    res.json(await remoteWrite(req, `content-${method}`, () => client.editResource(req.params.resource, req.params.id, req.body)));
+  }));
   app.post('/api/integrations/website/files/:kind/:id', access, wrap(async (req, res) => {
     res.set('Cache-Control', 'no-store');
     res.json(await client.attachment(req.params.kind, req.params.id));
   }));
   app.get('/api/integrations/website/requests/:resource', access, wrap(async (req, res) => res.json(await client.resource(req.params.resource))));
   app.get('/api/integrations/website/requests/:resource/:id', access, wrap(async (req, res) => res.json(await client.detail(req.params.resource, req.params.id))));
-  app.post('/api/integrations/website/requests/:resource/:id/:action', access, wrap(async (req, res) => {
+  app.post('/api/integrations/website/requests/:resource/:id/:action', access, writeAccess, wrap(async (req, res) => {
     if (process.env.STUDY_BIRDS_ALLOW_WRITES !== 'true') throw fail('تعديل بيانات الموقع غير مفعّل على خادم CRM.', 403);
-    const id = randomUUID();
-    // Record intent before the remote operation. Never retry a write automatically.
-    await mutateDb(db => {
-      db.websiteIntegrationLog ||= [];
-      db.websiteIntegrationLog.unshift({ id, companyId: req.user.companyId, userId: req.user.sub, resource: req.params.resource, websiteId: req.params.id, action: req.params.action, status: 'pending', at: new Date().toISOString() });
-      db.websiteIntegrationLog = db.websiteIntegrationLog.slice(0, 1000);
-    });
-    try {
-      const data = await client.action(req.params.resource, req.params.id, req.params.action, req.body);
-      await mutateDb(db => { const log = db.websiteIntegrationLog.find(row => row.id === id); if (log) log.status = 'completed'; });
-      res.json(data);
-    } catch (error) {
-      await mutateDb(db => { const log = db.websiteIntegrationLog.find(row => row.id === id); if (log) { log.status = 'failed-or-unconfirmed'; log.message = error.message; } });
-      throw error;
-    }
+    res.json(await remoteWrite(req, req.params.action, () => client.action(req.params.resource, req.params.id, req.params.action, req.body)));
   }));
   app.get('/api/integrations/website/log', access, wrap(async (req, res) => res.json((await readDb()).websiteIntegrationLog?.filter(row => row.companyId === req.user.companyId).slice(0, 100) || [])));
 }
