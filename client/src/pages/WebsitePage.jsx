@@ -23,10 +23,10 @@ const statuses = {
   housing: ['confirmed', 'rejected', 'cancelled'], arrival: ['submitted', 'in-progress', 'completed'],
   scholarships: ['submitted', 'reviewing', 'accepted', 'rejected'], agencies: ['pending', 'approved', 'rejected'],
   verification: ['pending', 'approved', 'rejected'], payouts: ['pending', 'approved', 'rejected', 'paid'],
-  parents: ['approved', 'rejected'], support: ['answered', 'closed'],
+  parents: ['approved', 'rejected'], support: ['open','in-progress','answered', 'closed'],
   documents: ['uploaded', 'under-review', 'approved', 'rejected', 'needs-revision', 'needs-translation', 'expired'],
 };
-const statusLabels = { submitted: 'تم الإرسال', 'under-review': 'قيد المراجعة', 'additional-documents-required': 'مستندات إضافية مطلوبة', 'conditional-admission': 'قبول مشروط', 'payment-required': 'الدفع مطلوب', 'final-admission': 'قبول نهائي', rejected: 'مرفوض', pending: 'بانتظار المعالجة', assigned: 'تم التعيين', 'in-progress': 'قيد التنفيذ', 'en-route': 'في الطريق', completed: 'مكتمل', cancelled: 'ملغي', confirmed: 'مؤكد', reviewing: 'قيد المراجعة', accepted: 'مقبول', approved: 'معتمد', paid: 'مدفوع', answered: 'تم الرد', closed: 'مغلق', 'no-show': 'لم يحضر' };
+const statusLabels = { open:'مفتوحة',submitted: 'تم الإرسال', 'under-review': 'قيد المراجعة', 'additional-documents-required': 'مستندات إضافية مطلوبة', 'conditional-admission': 'قبول مشروط', 'payment-required': 'الدفع مطلوب', 'final-admission': 'قبول نهائي', rejected: 'مرفوض', pending: 'بانتظار المعالجة', assigned: 'تم التعيين', 'in-progress': 'قيد التنفيذ', 'en-route': 'في الطريق', completed: 'مكتمل', cancelled: 'ملغي', confirmed: 'مؤكد', reviewing: 'قيد المراجعة', accepted: 'مقبول', approved: 'معتمد', paid: 'مدفوع', answered: 'تم الرد', closed: 'مغلق', 'no-show': 'لم يحضر' };
 function text(value) {
   if (value == null) return '—';
   if (typeof value !== 'object') return String(value);
@@ -81,13 +81,15 @@ export default function WebsitePage({ embedded = false, resources = null, dialog
     try { const data = await api('/api/integrations/website/test', { method: 'POST' }); setNotice(`الاتصال ناجح: ${data.countries} دولة، ${data.universities} جامعة، ${data.programs} برنامج.`); }
     catch (e) { setError(e.message); } finally { setBusy(false); }
   }
-  async function start(row) {
+  async function start(row, action = null) {
+    let target = row;
     setSelected(row); setOperation(''); setForm({}); setError('');
     if (row._id && !row.__crm && result?.detailSupported) {
       setBusy(true);
-      try { const full = await api(`/api/integrations/website/requests/${resource}/${row._id}`); setSelected({ ...row, ...full, ...(resource === 'students' ? full.student : resource === 'communityPosts' ? full.post : resource==='agents'?full.partner:{}) }); }
-      catch (e) { setError(e.message); } finally { setBusy(false); }
+      try { const full = await api(`/api/integrations/website/requests/${resource}/${row._id}`); target = { ...row, ...full, ...(resource === 'students' ? full.student : resource === 'communityPosts' ? full.post : resource==='agents'?full.partner:{}) }; setSelected(target); }
+      catch (e) { setError(e.message); return; } finally { setBusy(false); }
     }
+    if(action) await choose(action,target);
   }
   async function openFile(kind, id) {
     setBusy(true); setError('');
@@ -107,24 +109,28 @@ export default function WebsitePage({ embedded = false, resources = null, dialog
     try {await api(`/api/integrations/website/content/${resource}/${row._id}/delete`,{method:'POST',body:'{}'});setSelected(null);onSaved?.();if (!dialogOnly) await load();}
     catch(e) {setError(e.message);} finally {setBusy(false);}
   }
-  async function choose(action) {
+  async function choose(action, record = selected) {
+    setError('');
     if((resource==='support' && action==='assign') || (resource==='services' && action==='update')){try{setAssignees(await api(`/api/integrations/website/${resource==='support'?'support':'service'}-assignees`));}catch(e){setError(e.message);return;}}
     setOperation(action);if(!action){setForm({});return;}
     const fields = result.actions[action].fields;
     const values = {};
     for (const field of fields) {
-      if (['version', 'expectedVersion'].includes(field)) values[field] = selected.__v ?? selected.version ?? 0;
-      else if (field === 'detailedStatus') values[field] = selected.detailedStatus || statuses[resource]?.[0] || '';
-      else if (field === 'status') values[field] = statuses[resource]?.includes(selected.status) ? selected.status : statuses[resource]?.[0] || selected.status || '';
+      if (['version', 'expectedVersion'].includes(field)) values[field] = record.__v ?? record.version ?? 0;
+      else if (field === 'detailedStatus') values[field] = record.detailedStatus || statuses[resource]?.[0] || '';
+      else if (resource==='support' && action==='reply' && field==='message') values[field]='';
+      else if (resource==='support' && action==='reply' && field==='status') values[field]='answered';
+      else if (field === 'status') values[field] = statuses[resource]?.includes(record.status) ? record.status : statuses[resource]?.[0] || record.status || '';
       else if (field === 'result') values[field] = 'completed';
-      else if (field === 'assignedTo') values[field] = selected[field]?._id || selected[field] || '';
-      else values[field] = typeof selected[field] === 'string' || typeof selected[field] === 'number' || typeof selected[field] === 'boolean' ? selected[field] : '';
+      else if (field === 'assignedTo') values[field] = record[field]?._id || record[field] || '';
+      else values[field] = typeof record[field] === 'string' || typeof record[field] === 'number' || typeof record[field] === 'boolean' ? record[field] : '';
     }
     setForm(values);
   }
   async function save(event) {
     event.preventDefault(); setBusy(true); setError(''); setNotice('');
     try {
+      if(resource==='support' && operation==='reply' && !String(form.message || '').trim())throw new Error('اكتب الرد قبل الإرسال.');
       // Only explicitly populated fields are sent; hidden version fields preserve conflict detection.
       const payload = Object.fromEntries(Object.entries(form).filter(([key,value])=>value!=='' || ['assignedTo','staffNote','adminNote','reviewNote','escalationNote','notes'].includes(key)));
       if(['support','services'].includes(resource) && payload.assignedTo==='')payload.assignedTo=null;
@@ -139,7 +145,7 @@ export default function WebsitePage({ embedded = false, resources = null, dialog
     <Modal open={Boolean(selected)} onClose={() => { if (!busy) { setSelected(null); onDismiss?.(); } }} title="تفاصيل السجل" size="lg">
       {selected && <><p>رقم السجل: {selected._id || '—'}</p><dl className="website-details">{Object.entries(details).filter(([key]) => selected[key] != null).map(([key, label]) => <div key={key}><dt>{label}</dt><dd>{key === 'status' || key === 'detailedStatus' ? statusLabels[selected[key]] || text(selected[key]) : text(selected[key])}</dd></div>)}</dl>
       {resource==='communityPosts' && <CommunityComments postId={selected._id} comments={selected.comments || []} writable={connection?.writesEnabled && result?.capabilities?.edit} onSaved={()=>{start(selected);onSaved?.();}} />}
-      {resource==='support' && <section><h3>سجل الردود</h3>{(selected.replies || []).map((reply,index)=><div className="student-card-row" key={reply._id || index}><strong>{text(reply.user)} · {formatDate(reply.createdAt)}</strong><p>{reply.message}</p></div>)}{!selected.replies?.length && <p>لا توجد ردود حتى الآن.</p>}</section>}
+      {resource==='support' && <section><p>الموظف المسؤول: {text(selected.assignedTo)}</p><h3>سجل الردود</h3>{(selected.replies || []).map((reply,index)=><div className="student-card-row" key={reply._id || index}><strong>{text(reply.user)} · {formatDate(reply.createdAt)}</strong><p>{reply.message}</p></div>)}{!selected.replies?.length && <p>لا توجد ردود حتى الآن.</p>}</section>}
       {error && <div role="alert" className="website-error">{error}</div>}
       {!embedded && !dialogOnly && canOpenModule(user, 'website') && <LinkWebsiteRecordButton resource={resource} record={selected} />}
       {selected.__crm && canOpenModule(user, 'catalogManagement') && <Button onClick={() => navigate('/catalog-management')}>تحرير في الدليل الدراسي</Button>}
@@ -148,13 +154,14 @@ export default function WebsitePage({ embedded = false, resources = null, dialog
       {resource==='services' && selected._id && connection?.writesEnabled && result?.capabilities?.upload && <label className="field"><span>إرفاق مستند للخدمة، حتى 5 ميجابايت</span><input type="file" disabled={busy} accept=".pdf,.png,.jpg,.jpeg,.webp,.doc,.docx" onChange={e=>uploadDocument(e.target.files?.[0])}/></label>}
       {['documents', 'paymentProofs'].includes(resource) && <Button disabled={busy} variant="secondary" onClick={() => openFile(resource === 'documents' ? 'documents' : 'payment-proofs', selected._id)}>فتح الملف</Button>}
       {resource!=='services' && Array.isArray(selected.documents) && selected.documents.filter(doc => doc && typeof doc === 'object' && doc._id).map(doc => <Button key={doc._id} disabled={busy} variant="secondary" onClick={() => openFile('documents', doc._id)}>{doc.fileName || doc.type || 'فتح مستند'}</Button>)}
+      {resource==='support' && connection?.writesEnabled && result?.capabilities?.edit && !selected.__crm && <div className="table-actions">{allowedActions.includes('reply') && <Button disabled={busy} onClick={()=>choose('reply')}>الرد على التذكرة</Button>}{allowedActions.includes('assign') && <Button disabled={busy} variant="secondary" onClick={()=>choose('assign')}>إسناد لموظف</Button>}</div>}
       {resource==='support' && selected.attachment && <Button variant="secondary" disabled={busy} onClick={()=>openFile('support-attachments',selected._id)}>فتح مرفق التذكرة</Button>}
       {resource==='services' && <section><h3>متابعة الخدمة</h3><p>المسؤول: {text(selected.assignedTo)} · ملاحظة الموظف: {selected.staffNote || '—'}</p>{(selected.statusHistory || []).map((item,index)=><p key={index}>{statusLabels[item.status] || item.status} · {formatDate(item.changedAt)} {item.note && `· ${item.note}`}</p>)}{selected.driverDetails?.name && <p>السائق: {selected.driverDetails.name} · {selected.driverDetails.phone}</p>}</section>}
       {resource==='services' && connection?.writesEnabled && allowedActions.includes('update') && <Button disabled={busy} onClick={()=>choose('update')}>تحديث الحالة وإسناد الموظف</Button>}
       {resource==='services' && (selected.documents || []).filter(doc=>doc._id).map(doc=><Button key={doc._id} disabled={busy} variant="secondary" onClick={async()=>{setBusy(true);try{const data=await api(`/api/integrations/website/service-files/${selected._id}/${doc._id}`,{method:'POST'});if(!data.url?.startsWith('https://'))throw new Error('رابط الملف غير متوفر');window.open(data.url,'_blank','noopener,noreferrer');}catch(e){setError(e.message);}finally{setBusy(false);}}}>{doc.fileName || 'فتح مستند الخدمة'}</Button>)}
       {connection?.writesEnabled && result?.capabilities?.edit && !selected.__crm && allowedActions.length > 0 && <form onSubmit={save}><label className="field"><span>الإجراء</span><select value={operation} disabled={busy} onChange={e => choose(e.target.value)}><option value="">اختر إجراء</option>{allowedActions.map(key => <option key={key} value={key}>{actionLabels[key]}</option>)}</select></label>
       {operation && Object.keys(form).filter(field => !['version', 'expectedVersion'].includes(field)).map(field => <label className="field" key={field}><span>{labels[field] || field}</span>{['support','services'].includes(resource) && field==='assignedTo' ? <select disabled={busy} value={form[field]} onChange={e=>setForm(current=>({...current,[field]:e.target.value}))}><option value="">بدون مسؤول</option>{assignees.map(row=><option value={row._id} key={row._id}>{row.name} · {row.email}</option>)}</select> : (field === 'status' || field === 'detailedStatus' || field === 'result') ? <select disabled={busy} value={form[field]} onChange={e => setForm(current => ({ ...current, [field]: e.target.value }))}>{(field === 'result' ? ['completed', 'no-show'] : statuses[resource] || [form[field]]).map(value => <option key={value} value={value}>{statusLabels[value] || value}</option>)}</select> : ['isActive', 'published','enabled','escalated','isEmergency'].includes(field) ? <input type="checkbox" checked={Boolean(form[field])} disabled={busy} onChange={e => setForm(current => ({ ...current, [field]: e.target.checked }))} /> : <textarea disabled={busy} maxLength={1000} value={form[field]} onChange={e => setForm(current => ({ ...current, [field]: e.target.value }))} />}</label>)}
-      <p>الحفظ يحدّث السجل الأصلي.</p><Button disabled={busy || !operation} type="submit">{busy ? 'جارٍ الحفظ...' : 'حفظ التحديث'}</Button></form>}</>}
+      <p>الحفظ يحدّث السجل الأصلي.</p><Button disabled={busy || !operation} type="submit">{busy ? 'جارٍ الحفظ...' : resource==='support' && operation==='reply' ? 'إرسال الرد' : resource==='support' && operation==='assign' ? 'حفظ الإسناد' : 'حفظ التحديث'}</Button></form>}</>}
     </Modal>
   );
   if (dialogOnly) return <>{!selected && <Card>{error || (connection && !connection.ready ? 'الربط غير متاح حاليًا.' : 'جارٍ تحميل السجل…')}<Button variant="secondary" onClick={onDismiss}>إغلاق</Button></Card>}{recordDialog}</>;
@@ -169,7 +176,7 @@ export default function WebsitePage({ embedded = false, resources = null, dialog
       {loading ? <Spinner /> : <><p>{rows.length} سجل معروض {result?.fetchedAt && `• آخر قراءة: ${formatDate(result.fetchedAt)}`}</p>
       {result?.stale && <p role="status" className="website-hint">تعذر تحديث القائمة؛ المعروض آخر بيانات الموقع المحفوظة. {(result.warnings || []).join('، ')}</p>}
       {result?.completeness === 'endpoint-limit' && <p className="website-hint">هذه قائمة السجلات التي أتاحتها واجهة الموقع؛ بعض الأقسام تضع حدًا لعدد السجلات.</p>}
-      <div className="website-table-wrap"><table className="catalog-table"><thead><tr><th>المصدر</th><th>{catalogResource?"اسم العنصر":"الاسم / مقدم الطلب"}</th><th>{catalogResource?"بيانات إضافية":"الخدمة / البرنامج"}</th><th>الحالة</th><th>التاريخ</th><th>التفاصيل</th></tr></thead><tbody>{rows.map((row, index) => <tr key={row._id || index}><td><Badge tone={row.__crm ? 'neutral' : 'blue'}>{row.__crm ? 'CRM' : 'مرتبط'}</Badge></td><td>{catalogResource ? title(row) : person(row)}</td><td>{catalogResource?[resource==='countries'?row.code:resource==='studyFields'?row.description:text(row.university || row.country),row.degreeLevel,row.language].filter(Boolean).join(' · ') || '—':title(row)}</td><td>{statusLabels[row.detailedStatus || row.status] || row.status || '—'}</td><td>{formatDate(row.createdAt)}</td><td><div className="table-actions"><Button variant="secondary" onClick={() => start(row)}>{catalogResource && connection?.writesEnabled && result?.capabilities?.edit?"تعديل":resource==='services'?"إدارة الطلب":"عرض"}</Button>{catalogResource && !row.__crm && connection?.writesEnabled && result?.deletable && result?.capabilities?.delete && <Button variant="danger" disabled={busy} onClick={()=>deleteRecord(row)}>حذف</Button>}</div></td></tr>)}</tbody></table></div>{!rows.length && !error && <p>لا توجد سجلات لعرضها.</p>}</>}
+      <div className="website-table-wrap"><table className="catalog-table"><thead><tr><th>المصدر</th><th>{catalogResource?"اسم العنصر":"الاسم / مقدم الطلب"}</th><th>{catalogResource?"بيانات إضافية":"الخدمة / البرنامج"}</th><th>الحالة</th><th>التاريخ</th><th>التفاصيل</th></tr></thead><tbody>{rows.map((row, index) => <tr key={row._id || index}><td><Badge tone={row.__crm ? 'neutral' : 'blue'}>{row.__crm ? 'CRM' : 'مرتبط'}</Badge></td><td>{catalogResource ? title(row) : person(row)}</td><td>{catalogResource?[resource==='countries'?row.code:resource==='studyFields'?row.description:text(row.university || row.country),row.degreeLevel,row.language].filter(Boolean).join(' · ') || '—':title(row)}</td><td>{statusLabels[row.detailedStatus || row.status] || row.status || '—'}</td><td>{formatDate(row.createdAt)}</td><td><div className="table-actions"><Button disabled={busy} variant="secondary" onClick={() => start(row)}>{catalogResource && connection?.writesEnabled && result?.capabilities?.edit?"تعديل":resource==='services'?"إدارة الطلب":"عرض"}</Button>{resource==='support' && !row.__crm && connection?.writesEnabled && result?.capabilities?.edit && <>{result?.actions?.reply && <Button disabled={busy} onClick={()=>start(row,'reply')}>رد</Button>}{result?.actions?.assign && <Button disabled={busy} variant="secondary" onClick={()=>start(row,'assign')}>إسناد</Button>}</>}{catalogResource && !row.__crm && connection?.writesEnabled && result?.deletable && result?.capabilities?.delete && <Button variant="danger" disabled={busy} onClick={()=>deleteRecord(row)}>حذف</Button>}</div></td></tr>)}</tbody></table></div>{!rows.length && !error && <p>لا توجد سجلات لعرضها.</p>}</>}
     </Card>
     {!embedded && connection && canOpenModule(user, 'website') && <WebsiteWorkflowPanel connection={connection} resource={resource} onRefresh={() => load()} />}
     {!catalogResource && connection?.writesEnabled && result?.capabilities?.create && (result?.createFields || result?.editFields)?.length > 0 && !result?.singleton && <Button onClick={() => setSelected({})}>إضافة سجل جديد إلى الموقع</Button>}

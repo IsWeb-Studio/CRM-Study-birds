@@ -69,3 +69,14 @@ test('service staff manage definitions in their section and forward versioned li
  await client.editResource('contentServices',null,{title:'Airport transfer',price:30,durationDays:1,journeyStage:'arrival',country:null});assert.equal(calls[2].url,'https://site.example/api/admin/our-services');assert.equal(JSON.parse(calls[2].options.body).price,30);
  await assert.rejects(client.action('services',id('b'),'update',{price:20}));assert.equal(calls.length,3);
 });
+
+test('ticket details, replies and assignment use the protected support endpoints',async()=>{
+ const staff={role:'management',permissionMode:'custom',permissions:{modules:['inbox'],actions:['manageSupport']}};
+ assert.equal(canWriteResource(staff,'support','reply'),true);assert.equal(canWriteResource(staff,'support','assign'),true);assert.equal(canWriteResource(staff,'employees','edit'),false);
+ const calls=[];const client=createWebsiteClient({config:()=>({enabled:true,ready:true,baseUrl:'https://site.example/api',token:'fixture'}),fetchImpl:async(url,options)=>{calls.push({url,options});return {ok:true,json:async()=>({_id:id('a')})};}});
+ await client.detail('support',id('a'));assert.equal(calls[0].url,`https://site.example/api/admin/support-tickets/${id('a')}`);
+ await client.action('support',id('a'),'reply',{message:'A new reply',status:'answered'});assert.equal(calls[1].url,`https://site.example/api/admin/support-tickets/${id('a')}/reply`);assert.equal(calls[1].options.method,'PATCH');
+ await client.action('support',id('a'),'assign',{assignedTo:id('b')});assert.equal(calls[2].url,`https://site.example/api/admin/support-tickets/${id('a')}/assign`);
+ await client.action('support',id('a'),'assign',{assignedTo:null});assert.equal(JSON.parse(calls[3].options.body).assignedTo,null);
+ await assert.rejects(client.action('support',id('a'),'assign',{role:'admin'}));assert.equal(calls.length,4);
+});
