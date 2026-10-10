@@ -182,21 +182,22 @@ export default function Consultancy() {
   const canDeleteLead = can(user, 'deleteLead');
   const canMoveLead = can(user, 'moveLead');
 
+  const loadVersion=useRef(0);
   const load = async () => {
-    try {
-      const [leadData, settingData] = await Promise.all([api('/api/leads?page=1&limit=200'), api('/api/settings')]);
-      setLeads(leadData.items || []);
-      setSettings(settingData);
-    } catch (error) {
-      setToast({ type: 'error', message: error.message });
-    } finally {
-      setLoading(false);
+    const stamp=++loadVersion.current;
+    const results=await Promise.allSettled([api('/api/leads?page=1&limit=200'),api('/api/settings?catalog=stored')]);
+    if(stamp!==loadVersion.current)return;
+    if(results[0].status==='fulfilled')setLeads(results[0].value.items || []);
+    if(results[1].status==='fulfilled')setSettings(results[1].value);
+    const failed=results.find(row=>row.status==='rejected');
+    if(failed)setToast({type:'error',message:failed.reason.message});
+    setLoading(false);
+    // Catalog updates do not block the local lead board or discard existing data.
+    if(results[1].status==='fulfilled' && results[1].value.websiteCatalogPending){
+      api('/api/settings').then(data=>{if(stamp===loadVersion.current)setSettings(data);}).catch(error=>{if(stamp===loadVersion.current)setToast({type:'error',message:error.message});});
     }
   };
-
-  useEffect(() => {
-    load();
-  }, []);
+  useEffect(() => {load();return ()=>{loadVersion.current++;};}, []);
 
   const catalogLinks = settings?.catalogLinks || {};
   const consultants = useMemo(

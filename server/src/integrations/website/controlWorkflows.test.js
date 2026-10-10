@@ -89,3 +89,17 @@ test('content CRUD retains publication and article fields and singleton existenc
  for(const resource of ['testimonials','recognitions','exhibitions','pastEvents','contentServices','faqs','knowledge']){await client.deleteResource(resource,id('b'));assert.equal(calls.at(-1).options.method,'DELETE');}
  await client.deleteResource('ourStory',id('a'));assert.equal(calls.at(-1).url,`https://site.example/api/admin/our-story/${id('a')}`);
 });
+
+test('paged reads fetch at most four pages concurrently and retain source order',async()=>{
+ let active=0,maximum=0;const requested=[];
+ const client=createWebsiteClient({config:()=>({enabled:true,ready:true,baseUrl:'https://site.example/api',token:'fixture'}),fetchImpl:async url=>{
+   const page=Number(new URL(url).searchParams.get('page'));requested.push(page);active++;maximum=Math.max(maximum,active);
+   await new Promise(resolve=>setTimeout(resolve,(7-page)*3));active--;
+   return {ok:true,json:async()=>({items:[{_id:page}],pagination:{totalPages:6,hasNextPage:page<6}})};
+ }});
+ const data=await client.resource('programs');assert.deepEqual(data.rows.map(row=>row._id),[1,2,3,4,5,6]);assert.equal(maximum,4);assert.equal(requested.length,6);
+});
+test('a failed parallel page never returns or caches an incomplete list',async()=>{
+ let failing=true,calls=0;const client=createWebsiteClient({config:()=>({enabled:true,ready:true,baseUrl:'https://site.example/api',token:'fixture'}),fetchImpl:async url=>{calls++;const page=Number(new URL(url).searchParams.get('page'));return {ok:!(failing && page===3),status:500,json:async()=>({items:[{_id:page}],pagination:{totalPages:4}})};}});
+ await assert.rejects(client.resource('programs'));failing=false;const before=calls;const data=await client.resource('programs');assert.equal(data.rows.length,4);assert(calls>before);
+});

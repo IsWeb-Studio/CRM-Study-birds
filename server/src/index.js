@@ -3345,7 +3345,7 @@ if (process.env.STUDY_BIRDS_ENABLED === 'true') {
   }
 }
 
-app.get('/api/health', (_req, res) => res.json({ status: 'ok', time: now(), websiteIntegration: 13, buildCommit: process.env.RENDER_GIT_COMMIT || process.env.VERCEL_GIT_COMMIT_SHA || null }));
+app.get('/api/health', (_req, res) => res.json({ status: 'ok', time: now(), websiteIntegration: 14, buildCommit: process.env.RENDER_GIT_COMMIT || process.env.VERCEL_GIT_COMMIT_SHA || null }));
 
 app.post('/api/auth/login', async (req, res) => {
   const { email, password } = req.body || {};
@@ -4133,8 +4133,13 @@ app.get('/api/settings', async (_req, res) => {
   const websiteEnabled = process.env.STUDY_BIRDS_ENABLED === 'true';
   let catalog = db.educationCatalog || {};
   if (websiteEnabled) {
-    try { catalog = await websiteClient.catalog(); }
-    catch (error) { catalog = {}; settings.websiteCatalogError = error.message; }
+    if(_req.query.catalog==='stored'){
+      catalog=db.websiteCatalogSnapshots?.[_req.user.companyId]?.catalog || {};
+      settings.websiteCatalogPending=true;
+    }else{
+      try { catalog = await loadCatalogSnapshot(websiteClient,readDb,mutateDb,_req.user.companyId); }
+      catch (error) { catalog = {}; settings.websiteCatalogError = error.message; }
+    }
   }
   const catalogLinks = buildEducationCatalogLinks(catalog);
   settings.availableUniversities = websiteEnabled || catalogLinks.universities.length

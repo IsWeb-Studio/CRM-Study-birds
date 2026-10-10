@@ -108,17 +108,30 @@ export function createWebsiteClient({ config = () => websiteConfig(), fetchImpl 
     return data;
   }
   async function readList(path, collection) {
-    const rows = [];
-    for (let page = 1; page <= 500; page++) {
-      const data = await request(`${path}${path.includes('?') ? '&' : '?'}page=${page}&limit=100&crmPagination=1`);
-      if (Array.isArray(data)) return { rows: data, paginated: false };
-      const items = collection ? data[collection] : data.items || data.data;
-      if (!Array.isArray(items)) throw fail('صيغة قائمة الموقع غير متوقعة.', 502);
-      rows.push(...items);
-      const meta = data.pagination;
-      if (!meta || !(meta.hasNextPage || page < Number(meta.totalPages || 1))) return { rows, paginated: Boolean(meta) };
+    const readPage=async page=>{
+      const data=await request(`${path}${path.includes('?')?'&':'?'}page=${page}&limit=100&crmPagination=1`);
+      if(Array.isArray(data))return {rows:data,paginated:false};
+      const items=collection?data[collection]:data.items || data.data;
+      if(!Array.isArray(items))throw fail('صيغة قائمة الموقع غير متوقعة.',502);
+      return {rows:items,paginated:Boolean(data.pagination),meta:data.pagination};
+    };
+    const first=await readPage(1),rows=[...first.rows];
+    const pages=Number(first.meta?.totalPages);
+    if(Number.isInteger(pages) && pages>1){
+      if(pages>500)throw fail('القائمة تتجاوز حد القراءة؛ لم يتم اعتماد قائمة جزئية.',502);
+      // Bound concurrency and append in source order; a failed page rejects the whole read.
+      for(let page=2;page<=pages;page+=4){
+        const batch=await Promise.all(Array.from({length:Math.min(4,pages-page+1)},(_,index)=>readPage(page+index)));
+        for(const item of batch)rows.push(...item.rows);
+      }
+      return {rows,paginated:true};
     }
-    throw fail('القائمة تتجاوز حد القراءة؛ لم يتم اعتماد قائمة جزئية.', 502);
+    let meta=first.meta;
+    for(let page=2;meta?.hasNextPage;page++){
+      if(page>500)throw fail('القائمة تتجاوز حد القراءة؛ لم يتم اعتماد قائمة جزئية.',502);
+      const item=await readPage(page);rows.push(...item.rows);meta=item.meta;
+    }
+    return {rows,paginated:first.paginated};
   }
   async function list(path,collection){
     const c=config();if(!c.enabled || !c.ready)throw fail('ربط الموقع غير مفعّل أو رمز الاتصال غير مضبوط.',503);

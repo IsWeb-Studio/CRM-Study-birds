@@ -198,6 +198,7 @@ async function ensureReadModels(data) {
   for (const name of readModelCollections) {
     const collection = db.collection(`read_${name}`);
     await collection.createIndex({ companyId: 1, updatedAt: -1 });
+    if(name==='leads')await collection.createIndex({ companyId: 1, updatedAt: -1, createdAt: -1 });
     await collection.createIndex({ companyId: 1, createdAt: -1 });
     await collection.createIndex({ companyId: 1, id: 1 }, { unique: true });
   }

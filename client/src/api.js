@@ -41,7 +41,22 @@ function applyJsonHeader(headers, options) {
   }
 }
 
+const pendingReads = new Map();
 export async function api(path, options = {}) {
+  const token=localStorage.getItem('eduglobal_token');
+  ensureActiveSession(token);
+  const method=(options.method || 'GET').toUpperCase();
+  if(method!=='GET'){pendingReads.clear();return performApi(path,options);}
+  if(options.signal || options.body)return performApi(path,options);
+  const key=JSON.stringify([token,path,Array.from(new Headers(options.headers || {}).entries()),options.credentials,options.cache]);
+  if(pendingReads.has(key))return pendingReads.get(key).then(data=>structuredClone(data));
+  const flight=performApi(path,options);pendingReads.set(key,flight);
+  const clear=()=>{if(pendingReads.get(key)===flight)pendingReads.delete(key);};
+  flight.then(clear,clear);
+  return flight.then(data=>structuredClone(data));
+}
+
+async function performApi(path, options = {}) {
   const token = localStorage.getItem('eduglobal_token');
   ensureActiveSession(token);
 
