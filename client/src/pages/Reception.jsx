@@ -9,7 +9,7 @@ import {
   Search,
   UserRoundCheck
 } from 'lucide-react';
-import { api, formatDate, initials } from '../api.js';
+import { subscribeSettings, api, formatDate, initials } from '../api.js';
 import { Badge, Button, Card, Field, Spinner, Toast } from '../components/UI.jsx';
 import { formatArabicTime, tr } from '../i18n.js';
 
@@ -51,6 +51,7 @@ export default function Reception() {
   const [consultants, setConsultants] = useState([]);
   const [queue, setQueue] = useState([]);
   const [settings, setSettings] = useState(null);
+  useEffect(()=>subscribeSettings(setSettings),[]);
   const [form, setForm] = useState(blank);
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState(null);

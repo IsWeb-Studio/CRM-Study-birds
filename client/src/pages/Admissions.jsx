@@ -1,7 +1,7 @@
 import React, { useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { AlertTriangle, CheckCircle2, ChevronDown, CircleDot, Clock3, Eye, EyeOff, File, FilePlus2, FileUp, GraduationCap, History, KeyRound, Link as LinkIcon, Save, Search, ShieldCheck, Trash2, UploadCloud, WalletCards } from 'lucide-react';
-import { api, formatDate, initials, resolveFileUrl } from '../api.js';
+import { subscribeSettings, api, formatDate, initials, resolveFileUrl } from '../api.js';
 import { Badge, Button, Card, Field, Modal, Progress, Spinner, Toast } from '../components/UI.jsx';
 import { useAuth } from '../auth.jsx';
 import { tr } from '../i18n.js';
@@ -79,6 +79,7 @@ export default function Admissions() {
   const apps = useUnifiedRecords(localApps, 'applications');
   const {records} = useContext(UnifiedSectionContext);
   const [settings, setSettings] = useState(null);
+  useEffect(()=>subscribeSettings(setSettings),[]);
   const [students, setStudents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState(null);

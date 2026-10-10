@@ -16,7 +16,7 @@ import {
   Trash2,
   Wallet
 } from 'lucide-react';
-import { api, formatDate, initials, resolveFileUrl } from '../api.js';
+import { subscribeSettings, api, formatDate, initials, resolveFileUrl } from '../api.js';
 import { Badge, Button, Field, Modal, Spinner, Toast } from '../components/UI.jsx';
 import { useAuth } from '../auth.jsx';
 import { formatArabicTime, tr } from '../i18n.js';
@@ -155,6 +155,7 @@ export default function Consultancy() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [leads, setLeads] = useState([]);
   const [settings, setSettings] = useState(null);
+  useEffect(()=>subscribeSettings(setSettings),[]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [open, setOpen] = useState(false);
@@ -194,7 +195,7 @@ export default function Consultancy() {
     setLoading(false);
     // Catalog updates do not block the local lead board or discard existing data.
     if(results[1].status==='fulfilled' && results[1].value.websiteCatalogPending){
-      api('/api/settings').then(data=>{if(stamp===loadVersion.current)setSettings(data);}).catch(error=>{if(stamp===loadVersion.current)setToast({type:'error',message:error.message});});
+      api('/api/settings?catalog=fresh').then(data=>{if(stamp===loadVersion.current)setSettings(data);}).catch(error=>{if(stamp===loadVersion.current)setToast({type:'error',message:error.message});});
     }
   };
   useEffect(() => {load();return ()=>{loadVersion.current++;};}, []);

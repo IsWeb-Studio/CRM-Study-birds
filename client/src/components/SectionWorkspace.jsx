@@ -36,10 +36,11 @@ export default function SectionWorkspace({ module, children }) {
       const nativePaths = {students:'/api/students?page=1&limit=50', admissions:'/api/applications', finance:'/api/invoices', hr:'/api/hr'};
       if (nativePaths[module] && tab === 'main') {
         try {
-          const native = await api(nativePaths[module]); const key = primary[module];
+          const [native,students,settings]=await Promise.all([api(nativePaths[module]),['admissions','finance'].includes(module)?api('/api/students'):null,module==='admissions'?api('/api/settings'):null]);
+          const key = primary[module];
           next[key] = {...next[key], nativePayload:native, nativeRows:module === 'students' ? native.items || [] : module === 'hr' ? native.employees || [] : native};
-          if (['admissions','finance'].includes(module)) next[key].nativeStudents = await api('/api/students');
-          if (module === 'admissions') next[key].nativeSettings = await api('/api/settings');
+          if(students)next[key].nativeStudents=students;
+          if(settings)next[key].nativeSettings=settings;
         }
         catch (error) {failed.push(error.message);}
       }

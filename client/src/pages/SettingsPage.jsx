@@ -1,6 +1,6 @@
 ﻿import React, { useEffect, useMemo, useState } from 'react';
 import { Building2, Clock3, ListChecks, MessageCircleMore, Plus, Save, Settings2, ShieldCheck, Trash2, UserCog } from 'lucide-react';
-import { api } from '../api.js';
+import { api, subscribeSettings } from '../api.js';
 import { Badge, Button, Card, Field, Modal, Spinner, Toast } from '../components/UI.jsx';
 import { useAuth } from '../auth.jsx';
 import { tr } from '../i18n.js';
@@ -208,8 +208,9 @@ export default function SettingsPage() {
   const adminUsers = useMemo(() => form.users.filter(item => item.role === 'admin'), [form.users]);
   const teamUsers = useMemo(() => form.users.filter(item => item.role !== 'admin'), [form.users]);
 
+  useEffect(()=>subscribeSettings(data=>setCatalogLinks(data.catalogLinks || {})),[]);
   const load = () =>
-    Promise.all([api('/api/settings'), api('/api/integrations/meta/status'), api('/api/education-catalog')])
+    Promise.all([api('/api/settings'), api('/api/integrations/meta/status'), api('/api/education-catalog?source=crm')])
       .then(([settings, meta, catalog]) => {
         setCatalogLinks(settings.catalogLinks || {});
         setCatalogForm({

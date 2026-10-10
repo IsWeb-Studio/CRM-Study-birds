@@ -372,6 +372,8 @@ export function mountWebsiteRoutes(app, { allowModule, allowAction, client, read
     res.json(await client.attachment(req.params.kind, req.params.id));
   }));
   app.get('/api/integrations/website/requests/:resource', sectionAccess(req => req.params.resource), wrap(async (req, res) => {
+    const relatedKeys = req.params.resource === 'students' ? ['applications','financials'].filter(key => allowed(req.user,key)) : [];
+    const relatedPromise = Promise.allSettled(relatedKeys.map(key => client.resource(key)));
     let data;
     const catalogResource=['countries','universities','programs','scholarshipCatalog','studyFields'].includes(req.params.resource);
     const snapshotKey=JSON.stringify([req.user.companyId,req.params.resource]);
@@ -381,8 +383,7 @@ export function mountWebsiteRoutes(app, { allowModule, allowAction, client, read
       const digest=createHash('sha256').update(JSON.stringify(data.rows)).digest('hex');
       if((await readDb()).websiteCatalogRows?.[snapshotKey]?.digest!==digest)await mutateDb(db=>{db.websiteCatalogRows ||= {};db.websiteCatalogRows[snapshotKey]={digest,data:structuredClone(data)};});
     }
-    const relatedKeys = req.params.resource === 'students' ? ['applications','financials'].filter(key => allowed(req.user,key)) : [];
-    const related = await Promise.allSettled(relatedKeys.map(key => client.resource(key)));
+    const related = await relatedPromise;
     if (nativeResources[req.params.resource]) {
       const snapshot=await readDb();
       const digest=createHash('sha256').update(JSON.stringify([data.rows,related.map(result=>result.status==='fulfilled'?result.value.rows:null)])).digest('hex');
