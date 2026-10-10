@@ -67,3 +67,43 @@ test('student offers and opportunities preserve immutable kinds and page through
  await client.editResource('studentOffers',id,{title:'Updated'});const edited=calls.find(row=>row.options.method==='PUT');assert.equal(edited.url,`https://website.example/api/admin/community-posts/listings/${id}`);assert.equal(JSON.parse(edited.options.body).kind,'offer');
  await client.editResource('studentOpportunities',undefined,{title:'New',published:false});assert.equal(JSON.parse(calls.at(-1).options.body).kind,'opportunity');
 });
+
+
+test('catalog editors expose all country visa and article fields, university colors and program popularity', async () => {
+  const { websiteResources } = await import('./website.service.js');
+  const expected = {
+    countries: ['name','code','description','heroImage','visaNotes','processingDays','visaFeeUsd','languageRequirements','visaNotesList','visaRequirements','universityCount','specialtyCount','averageTuition','articleTitle','articleTitleColor','articleHeadingColor','articleBodyColor','articleHeadings','articleBodies','featured'],
+    universities: ['articleTitleColor','articleHeadingColor','articleBodyColor'],
+    programs: ['popularity','requiredDocumentTypes','fieldsOfStudy'],
+  };
+  for (const [key, fields] of Object.entries(expected)) for (const field of fields) assert.ok(websiteResources[key].editFields.includes(field), `${key}: ${field}`);
+  assert.ok(!websiteResources.countries.editFields.includes('heroSubtitle'));
+});
+
+test('country edits forward complete visa data and preserve untouched source requirements', async () => {
+  let payload;
+  const original = {_id:id,name:'Turkey',code:'TR',visaRequirements:[{docKey:'passport',label:'Passport'}],languageRequirements:['IELTS 6.5'],visaNotesList:['Keep note'],journeyStageRequirements:[{stage:'visa',documents:['passport']}],articleBodies:['Keep body'],visaFeeUsd:50};
+  const client=createWebsiteClient({config,fetchImpl:async(_url,options)=>{if(options.method==='PUT'){payload=JSON.parse(options.body);return response(payload);}return response([original]);}});
+  await client.editResource('countries',id,{processingDays:10,featured:true,articleTitleColor:'#123456'});
+  assert.equal(payload.processingDays,10);
+  assert.equal(payload.articleTitleColor,'#123456');
+  assert.deepEqual(payload.visaRequirements,original.visaRequirements);
+  assert.deepEqual(payload.languageRequirements,original.languageRequirements);
+  assert.deepEqual(payload.journeyStageRequirements,original.journeyStageRequirements);
+  assert.deepEqual(payload.articleBodies,original.articleBodies);
+  assert.equal(payload.visaFeeUsd,50);
+});
+
+test('country creation and university colors and program popularity reach the website API',async()=>{
+ const calls=[];
+ const client=createWebsiteClient({config,fetchImpl:async(url,options)=>{calls.push({url,body:JSON.parse(options.body)});return response({});}});
+ await client.editResource('countries',undefined,{name:'Country',code:'XY',visaFeeUsd:0,visaRequirements:[{docKey:'passport',label:'Passport'}],featured:false});
+ await client.editResource('universities',undefined,{name:'University',country:id,articleTitleColor:'#123456',articleHeadingColor:'#234567',articleBodyColor:'#345678'});
+ await client.editResource('programs',undefined,{title:'Medicine',university:id,degreeLevel:'Bachelor',fieldOfStudy:'Medicine',fieldsOfStudy:['Medicine'],requiredDocumentTypes:['passport'],popularity:0});
+ assert.equal(calls[0].url,'https://website.example/api/admin/countries');
+ assert.equal(calls[0].body.featured,false);
+ assert.deepEqual(calls[0].body.visaRequirements,[{docKey:'passport',label:'Passport'}]);
+ assert.equal(calls[1].body.articleTitleColor,'#123456');
+ assert.equal(calls[2].body.popularity,0);
+ assert.deepEqual(calls[2].body.requiredDocumentTypes,['passport']);
+});

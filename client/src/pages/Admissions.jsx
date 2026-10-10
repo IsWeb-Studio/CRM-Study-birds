@@ -16,6 +16,8 @@ const currentYear = 2026;
 
 const createBlank = {
   studentId: '',
+  websiteEmail: '',
+  websitePassword: '',
   universities: [],
   program: '',
   country: '',
@@ -262,6 +264,7 @@ export default function Admissions() {
     programOptions
   ]);
   const selectedUniversitiesLabel = useMemo(() => {
+    if(Boolean(createForm.websiteEmail.trim()) !== Boolean(createForm.websitePassword)){setToast({type:'error',message:'أدخل إيميل وكلمة مرور حساب الموقع معًا، أو اتركهما فارغين.'});return;}
     if (!createForm.universities.length) return 'اختر جامعة أو أكثر';
     if (createForm.universities.length === 1) return createForm.universities[0];
     return `${createForm.universities.length} جامعات محددة`;
@@ -867,10 +870,17 @@ export default function Admissions() {
       <Modal open={createOpen} onClose={() => setCreateOpen(false)} title="إنشاء طلب تقديم جديد" subtitle="الطالب الواحد يمكنه امتلاك أكثر من طلب مستقل" size="lg">
         <form className="form-grid" data-application-form="create" onSubmit={createApplication}>
           <Field label="الطالب" className="field-full">
-            <select required value={createForm.studentId} onChange={event => setCreateForm({ ...createForm, studentId: event.target.value })}>
+            <select required value={createForm.studentId} onChange={event => setCreateForm({ ...createForm, studentId: event.target.value, websiteEmail:'', websitePassword:'' })}>
               <option value="">اختر الطالب</option>
               {students.map(student => <option key={student.id} value={student.id}>{student.name}</option>)}
             </select>
+          </Field>
+          <div className="field-full website-hint">حساب الطالب في الموقع (اختياري). اترك الخانتين فارغتين لاستخدام حساب الطالب الحالي. إذا لم يكن لديه حساب، يُحفظ الطلب داخل الـCRM فقط.</div>
+          <Field label="إيميل حساب الطالب في الموقع (اختياري)">
+            <input type="email" autoComplete="off" value={createForm.websiteEmail} onChange={event=>setCreateForm({...createForm,websiteEmail:event.target.value})} placeholder="student@example.com" />
+          </Field>
+          <Field label="كلمة مرور حساب الطالب في الموقع (اختياري)" hint="عند إنشاء حساب، استخدم 8 أحرف على الأقل مع أحرف وأرقام ورموز.">
+            <input type="password" autoComplete="new-password" minLength={8} value={createForm.websitePassword} onChange={event=>setCreateForm({...createForm,websitePassword:event.target.value})} />
           </Field>
           <Field label="الجامعات" hint="يمكنك اختيار أكثر من جامعة وسيتم إنشاء طلب مستقل لكل جامعة.">
             <div className="multi-select" ref={universitiesMenuRef}>

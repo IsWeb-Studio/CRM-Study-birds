@@ -20,11 +20,13 @@ export default function StudentsPage() {
   const [form,setForm] = useState({name:'',email:'',password:'',phone:'',nationality:''});
   const [linkTarget,setLinkTarget] = useState(null);
   const [accountId,setAccountId]=useState('');
+  const [accountNotice,setAccountNotice]=useState('');
   async function createStudent(event) {
-    event.preventDefault();setCreateBusy(true);setError('');
+    event.preventDefault();if(createBusy)return;setCreateBusy(true);setError('');setAccountNotice('');
     try {
       const profile=Object.fromEntries(['phone','nationality',...profileFields].filter(key=>form[key]!==undefined && form[key]!=='').map(key=>[key,['otherLanguages','targetCountries'].includes(key)?String(form[key]).split('\n').map(value=>value.trim()).filter(Boolean):key==='dateOfBirth'?new Date(form[key]).toISOString():form[key]]));
       const student = await api(linkTarget ? `/api/students/${linkTarget.id}/account` : '/api/students',{method:'POST',body:JSON.stringify(linkTarget ? accountId ? {accountId} : {password:form.password} : {name:form.name,email:form.email,password:form.password,profile})});
+      setAccountNotice(`${linkTarget && accountId ? 'تم ربط حساب الموقع' : 'تم إنشاء حساب الطالب على الموقع'}: ${student.email}. يستطيع الطالب تسجيل الدخول بالإيميل وكلمة مرور حساب الموقع.`);
       setOpenedStudent(student);setSelectedId(student.id);setPage(1);setSearchValue('');setQuery('');setReload(value=>value+1);
       setCreateOpen(false);setForm({name:'',email:'',password:'',phone:'',nationality:''});refresh();
     } catch(e) {setError(e.message);} finally {setCreateBusy(false);}
@@ -76,13 +78,15 @@ export default function StudentsPage() {
       {writesEnabled && can(user,'createApplication') && <Button onClick={()=>{setAccountId('');setLinkTarget(null);setForm({name:'',email:'',password:'',phone:'',nationality:''});setError('');setCreateOpen(true);}}>إنشاء حساب طالب</Button>}
       <Modal open={createOpen} onClose={()=>{if (!createBusy) setCreateOpen(false);}} title="إنشاء طالب وحسابه في الموقع">
         <form className="form-grid" onSubmit={createStudent}>
-          {['name','email','phone','nationality'].map(key=><Field key={key} label={{name:'الاسم',email:'البريد الإلكتروني',phone:'الهاتف',nationality:'الجنسية'}[key]}><input required={['name','email'].includes(key)} type={key === 'email' ? 'email' : 'text'} value={form[key]} onChange={e=>setForm({...form,[key]:e.target.value})} disabled={createBusy || Boolean(linkTarget)} /></Field>)}
+          <p className="full-width website-hint">أدخل البريد الإلكتروني وكلمة مرور حساب الموقع للطالب. عند نجاح الحفظ يُنشأ حسابه في الموقع ويُربط بسجله في الـCRM، ويمكنه تسجيل الدخول بهما.</p>
+          {['name','email','phone','nationality'].map(key=><Field key={key} label={{name:'الاسم',email:'إيميل تسجيل الدخول للموقع',phone:'الهاتف',nationality:'الجنسية'}[key]}><input required={['name','email'].includes(key)} type={key === 'email' ? 'email' : 'text'} value={form[key]} onChange={e=>setForm({...form,[key]:e.target.value})} disabled={createBusy || Boolean(linkTarget)} /></Field>)}
           {linkTarget && <Field label="معرّف حساب الموقع الموجود (اختياري)" hint="لربط حساب موجود بنفس البريد؛ اتركه فارغًا لإنشاء حساب جديد."><input pattern="[a-fA-F0-9]{24}" value={accountId} onChange={e=>setAccountId(e.target.value)} disabled={createBusy} /></Field>}
-          {!(linkTarget && accountId) && <Field label="كلمة المرور" hint="8 أحرف على الأقل؛ اخلط أحرفًا وأرقامًا ورموزًا."><input required minLength={8} type="password" autoComplete="new-password" value={form.password} onChange={e=>setForm({...form,password:e.target.value})} disabled={createBusy} /></Field>}
-          {!linkTarget && <WebsiteFields form={form} setForm={setForm} fields={profileFields} options={{currentEducationLevel:[{value:'',label:'غير محدد'},{value:'high-school',label:'الثانوية'},{value:'bachelor',label:'بكالوريوس'},{value:'master',label:'ماجستير'},{value:'phd',label:'دكتوراه'}]}} disabled={createBusy}/>}{error && <p role="alert">{error}</p>}<Button type="submit" disabled={createBusy}>إنشاء الحساب</Button>
+          {!(linkTarget && accountId) && <Field label="كلمة مرور حساب الطالب في الموقع" hint="8 أحرف على الأقل؛ اخلط أحرفًا وأرقامًا ورموزًا."><input required minLength={8} type="password" autoComplete="new-password" value={form.password} onChange={e=>setForm({...form,password:e.target.value})} disabled={createBusy} /></Field>}
+          {!linkTarget && <WebsiteFields form={form} setForm={setForm} fields={profileFields} options={{currentEducationLevel:[{value:'',label:'غير محدد'},{value:'high-school',label:'الثانوية'},{value:'bachelor',label:'بكالوريوس'},{value:'master',label:'ماجستير'},{value:'phd',label:'دكتوراه'}]}} disabled={createBusy}/>}{error && <p role="alert">{error}</p>}<Button type="submit" disabled={createBusy}>{createBusy ? 'جارٍ حفظ حساب الموقع...' : linkTarget && accountId ? 'ربط الحساب الموجود' : 'إنشاء الطالب وحسابه في الموقع'}</Button>
         </form>
       </Modal>
       {error && !createOpen && <p role="alert">{error}</p>}
+      {accountNotice && <p role="status" className="website-notice">{accountNotice}</p>}
       <div className="kpi-grid student-kpis">
         <Card className="kpi-card">
           <div className="kpi-icon"><UserSquare2 /></div>

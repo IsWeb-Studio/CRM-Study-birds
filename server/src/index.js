@@ -6,7 +6,7 @@ import {mountStudentWorkspace} from './integrations/website/studentWorkspace.js'
 import 'dotenv/config';
 import {applicationEdit} from './integrations/website/applicationEdit.js';
 import { createWebsiteClient, mountWebsiteRoutes, websiteConfig } from './integrations/website/website.service.js';
-import { staffAccount, provisionAccount, assertWebsiteWrites, archiveLegacyCatalog, replaceLegacyCatalog, mountAccountBridge,websiteApplicationStatus,accountIdentity } from './integrations/website/accountBridge.js';
+import { staffAccount, provisionAccount, assertWebsiteWrites, archiveLegacyCatalog, replaceLegacyCatalog, mountAccountBridge,ensureApplicationStudentAccount,websiteApplicationStatus,accountIdentity } from './integrations/website/accountBridge.js';
 import { invoicePaidAmount } from './integrations/website/nativeFinance.js';
 import {mountWebsiteSso} from './integrations/website/websiteSso.js';
 import { mountWebsiteWorkflow, mountWebsiteEmail, startWebsitePolling } from './integrations/website/website.workflow.js';
@@ -5263,12 +5263,14 @@ app.post('/api/applications', allowAction('createApplication'), async (req, res)
       updatedAt: now()
     };
 
-    if (process.env.STUDY_BIRDS_ENABLED === 'true') {
+    const wantsWebsiteAccount=Boolean(req.body.websiteEmail || req.body.websitePassword);
+    if(wantsWebsiteAccount && process.env.STUDY_BIRDS_ENABLED!=='true')throw Object.assign(new Error('ربط الموقع غير مفعّل؛ لا يمكن إنشاء حساب الموقع الآن.'),{status:409});
+    if (process.env.STUDY_BIRDS_ENABLED === 'true' && (student.websiteSource?.id || wantsWebsiteAccount)) {
       assertWebsiteWrites();
-      if (!student.websiteSource?.id) throw Object.assign(new Error('أنشئ حساب الموقع لهذا الطالب من ملفه أولًا.'),{status:409});
       const catalog=await websiteClient.catalog();
       const matches=catalog.programs.filter(row=>row.university === application.university && (row.department === application.program || row.title === application.program));
       if (matches.length !== 1) throw Object.assign(new Error('اختر برنامجًا محددًا بدرجته ولغته من دليل الموقع.'),{status:409});
+      await ensureApplicationStudentAccount(websiteClient,{student,companyId:req.user.companyId,email:req.body.websiteEmail,password:req.body.websitePassword});
       const remote=await websiteClient.request('/crm/applications',{method:'POST',body:{studentId:student.websiteSource.id,programId:matches[0].id,notes:application.notes,intake:application.intake}});
       application.websiteSource={resource:'applications',id:remote._id,readOnly:false};
       application.websiteSource.programId=matches[0].id;

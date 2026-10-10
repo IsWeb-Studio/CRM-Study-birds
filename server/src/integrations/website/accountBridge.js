@@ -79,3 +79,21 @@ export function mountAccountBridge(app,{client,allowAction,allowModule,readDb,mu
     res.json(result);
   });
 }
+
+
+// Optional website login when adding an admission application for an existing CRM student.
+export async function ensureApplicationStudentAccount(client,{student,companyId,email,password},env=process.env) {
+  const loginEmail=typeof email==='string'?email.trim().toLowerCase():'';
+  const supplied=Boolean(loginEmail || password);
+  if(!supplied)return student.websiteSource?.id || null;
+  if(!loginEmail || typeof password!=='string' || !password)throw fail('لإنشاء حساب الموقع أدخل الإيميل وكلمة المرور معًا، أو اتركهما فارغين.');
+  if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(loginEmail))throw fail('أدخل إيميلًا صحيحًا لحساب الموقع.');
+  if(student.email && student.email.trim().toLowerCase()!==loginEmail)throw fail('إيميل الحساب يجب أن يطابق إيميل الطالب. عدّل بيانات الطالب أولًا إذا لزم.');
+  // Replays and later applications reuse the existing login without changing its password.
+  if(student.websiteSource?.id)return student.websiteSource.id;
+  if(env.STUDY_BIRDS_ENABLED!=='true')throw fail('ربط الموقع غير مفعّل؛ لا يمكن إنشاء حساب الموقع الآن.',409);
+  const source=await provisionAccount(client,{companyId,kind:'student',payload:{name:student.name,email:loginEmail,password,profile:{phone:student.phone || '',nationality:student.nationality || ''}}},env);
+  student.email=source.email || loginEmail;
+  student.websiteSource={resource:'students',id:source._id,readOnly:false};
+  return source._id;
+}
