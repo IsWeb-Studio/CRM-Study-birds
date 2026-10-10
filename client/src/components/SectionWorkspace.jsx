@@ -33,7 +33,7 @@ export default function SectionWorkspace({ module, children }) {
       Object.values(next).forEach(data => {failed.push(...(data.relatedErrors || []));if(data.stale)failed.push('تعذر تحديث الدليل؛ المعروض آخر بيانات الموقع المحفوظة.');});
       if (version.current !== requestVersion) return;
       // Load the native section after source identities have been materialized.
-      const nativePaths = {students:'/api/students?page=1&limit=200', admissions:'/api/applications', finance:'/api/invoices', hr:'/api/hr'};
+      const nativePaths = {students:'/api/students?page=1&limit=50', admissions:'/api/applications', finance:'/api/invoices', hr:'/api/hr'};
       if (nativePaths[module] && tab === 'main') {
         try {
           const native = await api(nativePaths[module]); const key = primary[module];

@@ -3345,7 +3345,7 @@ if (process.env.STUDY_BIRDS_ENABLED === 'true') {
   }
 }
 
-app.get('/api/health', (_req, res) => res.json({ status: 'ok', time: now(), websiteIntegration: 8, buildCommit: process.env.RENDER_GIT_COMMIT || process.env.VERCEL_GIT_COMMIT_SHA || null }));
+app.get('/api/health', (_req, res) => res.json({ status: 'ok', time: now(), websiteIntegration: 9, buildCommit: process.env.RENDER_GIT_COMMIT || process.env.VERCEL_GIT_COMMIT_SHA || null }));
 
 app.post('/api/auth/login', async (req, res) => {
   const { email, password } = req.body || {};
@@ -5157,6 +5157,7 @@ app.get('/api/students', allowModule('students'), async (req, res) => {
   const pagination = getPagination(req.query);
   const q = String(req.query.q || '').trim();
   const filter = { companyId: req.user.companyId };
+  if(req.query.id)filter.id=String(req.query.id);
   if (q) {
     const pattern = escapeMongoRegex(q);
     filter.$or = ['name', 'phone', 'email', 'nationality'].map(field => ({ [field]: { $regex: pattern, $options: 'i' } }));

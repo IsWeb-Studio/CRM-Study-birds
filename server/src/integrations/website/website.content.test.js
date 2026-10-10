@@ -25,3 +25,45 @@ test('content editor rejects fields outside the whitelist before any remote requ
   await assert.rejects(client.editResource('applications', id, { status: 'accepted' }));
   assert.equal(requests, 0);
 });
+
+test('marketing uploads preserve metadata and published=false; deletion and upload invalidate cached lists',async()=>{
+ const calls=[];
+ const client=createWebsiteClient({config,fetchImpl:async(url,options)=>{calls.push({url,options});return response(options.method==='GET'?[{_id:id}]:{_id:id});}});
+ await client.resource('marketingAssets');
+ await client.createMarketingAsset({buffer:Buffer.from('file'),mimetype:'application/pdf',originalname:'agency.pdf'},{title:'Agency brochure',description:'Details',type:'brochure',published:false});
+ const upload=calls.find(row=>row.options.method==='POST');assert.equal(upload.url,'https://website.example/api/admin/marketing-assets');assert.equal(upload.options.body.get('published'),'false');assert.equal(upload.options.body.get('file').name,'agency.pdf');
+ await client.resource('marketingAssets');await client.deleteResource('marketingAssets',id);await client.resource('marketingAssets');assert.equal(calls.filter(row=>row.options.method==='GET').length,3);
+ const before=calls.length;await assert.rejects(client.createMarketingAsset({buffer:Buffer.from('file')},{title:'Test',type:''}));await assert.rejects(client.createMarketingAsset({buffer:Buffer.from('file')},{title:'Test',role:'admin'}));assert.equal(calls.length,before);
+});
+test('new agents receive a company-scoped CRM identity and never send privilege fields',async()=>{
+ let payload;
+ const client=createWebsiteClient({config,fetchImpl:async(url,options)=>{assert.equal(url,'https://website.example/api/crm/partners');payload=JSON.parse(options.body);return response({_id:id});}});
+ await client.editResource('agents',undefined,{name:'Agency',email:'agent@example.test',password:'AgentUnique!42',companyName:'Company'},'one');
+ assert.equal(payload.companyId,'one');assert.match(payload.recordId,/^[a-f0-9]{64}$/);assert.equal(payload.profile.companyName,'Company');assert.equal(payload.role,undefined);
+ await assert.rejects(client.editResource('agents',undefined,{name:'Agency',role:'admin'},'one'));
+ await assert.rejects(client.editResource('agents',undefined,{name:'Agency',email:'agent@example.test'}));
+});
+
+test('community comment moderation verifies the parent and exposes only allowed status and note',async()=>{
+ let writes=0;
+ const comment='b'.repeat(24);
+ const client=createWebsiteClient({config,fetchImpl:async(url,options)=>{if(options.method==='PATCH'){writes++;assert.equal(url,`https://website.example/api/admin/community-comments/${comment}`);return response({status:'hidden'});}return response({comments:[{_id:comment}]});}});
+ await client.moderateComment(id,comment,{status:'hidden',moderationNote:'Spam'});assert.equal(writes,1);
+ await assert.rejects(client.moderateComment(id,'c'.repeat(24),{status:'hidden',moderationNote:'Spam'}),{status:404});
+ await assert.rejects(client.moderateComment(id,comment,{status:'hidden',moderationNote:'Spam',author:id}));assert.equal(writes,1);
+});
+test('suspensions use student identities to lift the suspension and settings remain a singleton',async()=>{
+ const student='b'.repeat(24),calls=[];
+ const client=createWebsiteClient({config,fetchImpl:async(url,options)=>{calls.push({url,options});return response(options.method==='GET'?[{_id:id,user:{_id:student,name:'Student'}}]:{});}});
+ const data=await client.resource('communitySuspensions');assert.equal(data.rows[0]._id,student);assert.equal(data.rows[0].suspensionId,id);
+ await client.action('communitySuspensions',student,'lift',{note:'Reviewed'});assert.equal(calls[1].url,`https://website.example/api/admin/community-suspensions/${student}`);assert.equal(calls[1].options.method,'DELETE');
+ await assert.rejects(client.editResource('communitySettings',undefined,{blockedTerms:['Spam']}));
+});
+
+test('student offers and opportunities preserve immutable kinds and page through full source history',async()=>{
+ const calls=[];
+ const client=createWebsiteClient({config,fetchImpl:async(url,options)=>{calls.push({url,options});if(options.method==='GET'){const page=Number(new URL(url).searchParams.get('page'));return response({items:[{_id:page===1?id:'b'.repeat(24),kind:'offer',title:'Offer'}],pagination:{totalPages:2}});}return response({});}});
+ const offers=await client.resource('studentOffers');assert.equal(offers.rows.length,2);assert.equal(offers.completeness,'paginated');assert.equal(new URL(calls[0].url).searchParams.get('kind'),'offer');
+ await client.editResource('studentOffers',id,{title:'Updated'});const edited=calls.find(row=>row.options.method==='PUT');assert.equal(edited.url,`https://website.example/api/admin/community-posts/listings/${id}`);assert.equal(JSON.parse(edited.options.body).kind,'offer');
+ await client.editResource('studentOpportunities',undefined,{title:'New',published:false});assert.equal(JSON.parse(calls.at(-1).options.body).kind,'opportunity');
+});

@@ -7,14 +7,15 @@ import { api, formatDate, formatMoney, initials } from '../api.js';
 import { Badge, Button, Card, Field, Modal, Progress, Spinner } from '../components/UI.jsx';
 import { useAuth } from '../auth.jsx';
 import { tr } from '../i18n.js';
-import { UnifiedSectionContext, useUnifiedRecords } from '../components/UnifiedSectionContext.jsx';
+import { UnifiedSectionContext } from '../components/UnifiedSectionContext.jsx';
 import {can} from '../permissions.js';
+import {mergeRecords,normalizeWebsiteRecord} from '../unifiedRecords.js';
 import SourceRecordActions from '../components/SourceRecordActions.jsx';
 
 const profileFields=['englishFullName','passportNumber','dateOfBirth','gpa','bio','address','intake','nativeLanguage','currentEducation','currentEducationLevel','currentResidenceCountry','currentResidenceRegion','otherLanguages','targetCountries','parentInfo','emergencyContact','englishTest'];
 export default function StudentsPage() {
   const { user } = useAuth();
-  const {refresh,writesEnabled} = useContext(UnifiedSectionContext);
+  const {refresh,writesEnabled,records} = useContext(UnifiedSectionContext);
   const [createOpen,setCreateOpen] = useState(false), [createBusy,setCreateBusy] = useState(false), [error,setError] = useState('');
   const [form,setForm] = useState({name:'',email:'',password:'',phone:'',nationality:''});
   const [linkTarget,setLinkTarget] = useState(null);
@@ -24,55 +25,37 @@ export default function StudentsPage() {
     try {
       const profile=Object.fromEntries(['phone','nationality',...profileFields].filter(key=>form[key]!==undefined && form[key]!=='').map(key=>[key,['otherLanguages','targetCountries'].includes(key)?String(form[key]).split('\n').map(value=>value.trim()).filter(Boolean):key==='dateOfBirth'?new Date(form[key]).toISOString():form[key]]));
       const student = await api(linkTarget ? `/api/students/${linkTarget.id}/account` : '/api/students',{method:'POST',body:JSON.stringify(linkTarget ? accountId ? {accountId} : {password:form.password} : {name:form.name,email:form.email,password:form.password,profile})});
-      const data = await api('/api/students?page=1&limit=200');setStudents(data.items || []);setSelectedId(student.id);
+      setOpenedStudent(student);setSelectedId(student.id);setPage(1);setSearchValue('');setQuery('');setReload(value=>value+1);
       setCreateOpen(false);setForm({name:'',email:'',password:'',phone:'',nationality:''});refresh();
     } catch(e) {setError(e.message);} finally {setCreateBusy(false);}
   }
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [localStudents, setStudents] = useState([]);
-  const students = useUnifiedRecords(localStudents, 'students');
+  const students=useMemo(()=>{const ids=new Set(localStudents.map(row=>row.websiteSource?.id));return mergeRecords(localStudents,(records.students?.rows || []).filter(row=>ids.has(row._id)).map(row=>normalizeWebsiteRecord('students',row)),'students');},[localStudents,records.students]);
+  const [page,setPage]=useState(1),[pageInfo,setPageInfo]=useState({total:0,totalPages:1}),[reload,setReload]=useState(0),[openedStudent,setOpenedStudent]=useState(null);
+  const [searchValue,setSearchValue]=useState('');
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState('');
   const [selectedId, setSelectedId] = useState(null);
 
+  useEffect(()=>{if(searchValue.trim()===query)return;const timer=setTimeout(()=>{setPage(1);setQuery(searchValue.trim());},300);return()=>clearTimeout(timer);},[searchValue,query]);
   useEffect(() => {
-    api('/api/students?page=1&limit=200')
-      .then(data => {
-        const items = data.items || [];
-        setStudents(items);
-        if (items[0]) setSelectedId(items[0].id);
-      })
-      .finally(() => setLoading(false));
-  }, []);
+    let active=true;setLoading(true);
+    api(`/api/students?page=${page}&limit=50&q=${encodeURIComponent(query)}`)
+      .then(data=>{if(!active)return;const items=data.items || [];setStudents(items);setSelectedId(current=>current || items[0]?.id || null);setPageInfo({total:data.total ?? items.length,totalPages:data.totalPages || 1});setError('');})
+      .catch(e=>{if(active)setError(e.message);})
+      .finally(()=>{if(active)setLoading(false);});
+    return()=>{active=false;};
+  }, [page,query,reload,records.students?.nativePayload]);
 
   useEffect(() => {
     const studentId = searchParams.get('studentId');
-    if (studentId) setSelectedId(studentId);
+    if(studentId){setSelectedId(studentId);api(`/api/students?page=1&limit=1&id=${encodeURIComponent(studentId)}`).then(data=>setOpenedStudent(data.items?.[0] || null)).catch(e=>setError(e.message));}
   }, [searchParams]);
 
-  const shown = useMemo(
-    () =>
-      students.filter(student =>
-        [
-          student.name,
-          student.email,
-          student.phone,
-          student.nationality,
-          ...(student.applications || []).flatMap(application => [
-            application.program,
-            application.university,
-            application.country,
-            application.status,
-            application.intake
-          ])
-        ]
-          .some(value => String(value || '').toLowerCase().includes(query.toLowerCase()))
-      ),
-    [students, query]
-  );
-
-  const selected = shown.find(student => student.id === selectedId) || students.find(student => student.id === selectedId) || null;
+  const shown=students;
+  const selected = shown.find(student => student.id === selectedId) || (openedStudent?.id===selectedId?openedStudent:null) || null;
   const selectedWhatsApp = String(selected?.phone || '').replace(/[^\d]/g, '');
   const totalApplications = students.reduce((sum, student) => sum + (student.applications?.length || 0), 0);
   const totalInvoices = students.reduce((sum, student) => sum + (student.invoices?.length || 0), 0);
@@ -86,7 +69,7 @@ export default function StudentsPage() {
     0
   );
 
-  if (loading) return <div className="loading-page"><Spinner />جارٍ تحميل ملفات الطلاب...</div>;
+
 
   return (
     <>
@@ -99,12 +82,13 @@ export default function StudentsPage() {
           {!linkTarget && <WebsiteFields form={form} setForm={setForm} fields={profileFields} options={{currentEducationLevel:[{value:'',label:'غير محدد'},{value:'high-school',label:'الثانوية'},{value:'bachelor',label:'بكالوريوس'},{value:'master',label:'ماجستير'},{value:'phd',label:'دكتوراه'}]}} disabled={createBusy}/>}{error && <p role="alert">{error}</p>}<Button type="submit" disabled={createBusy}>إنشاء الحساب</Button>
         </form>
       </Modal>
+      {error && !createOpen && <p role="alert">{error}</p>}
       <div className="kpi-grid student-kpis">
         <Card className="kpi-card">
           <div className="kpi-icon"><UserSquare2 /></div>
           <div className="kpi-meta">
             <span>إجمالي الطلاب</span>
-            <strong>{students.length}</strong>
+            <strong>{pageInfo.total}</strong>
             <small>طلاب مرتبطون بالنظام</small>
           </div>
         </Card>
@@ -113,7 +97,7 @@ export default function StudentsPage() {
           <div className="kpi-meta">
             <span>طلبات القبول</span>
             <strong>{totalApplications}</strong>
-            <small>طلبات نشطة ومكتملة</small>
+            <small>طلبات الصفحة المعروضة</small>
           </div>
         </Card>
         <Card className="kpi-card">
@@ -121,7 +105,7 @@ export default function StudentsPage() {
           <div className="kpi-meta">
             <span>الفواتير</span>
             <strong>{totalInvoices}</strong>
-            <small>فواتير مرتبطة بالطلاب</small>
+            <small>فواتير الصفحة المعروضة</small>
           </div>
         </Card>
         <Card className="kpi-card">
@@ -129,7 +113,7 @@ export default function StudentsPage() {
           <div className="kpi-meta">
             <span>الأرصدة المستحقة</span>
             <strong>{formatMoney(outstanding)}</strong>
-            <small>إجمالي المتبقي على الطلاب</small>
+            <small>المتبقي في الصفحة المعروضة</small>
           </div>
         </Card>
       </div>
@@ -139,12 +123,13 @@ export default function StudentsPage() {
           <div className="panel-toolbar">
             <div className="search-box">
               <Search />
-              <input value={query} onChange={event => setQuery(event.target.value)} placeholder="ابحث عن طالب..." />
+              <input value={searchValue} onChange={event => setSearchValue(event.target.value)} placeholder="ابحث بالاسم أو البريد أو الهاتف أو الجنسية..." />
             </div>
             <Badge tone="purple">{shown.length} طالب</Badge>
           </div>
 
-          <div className="students-list">
+          {loading && <p role="status">جارٍ تحميل ملفات الطلاب...</p>}
+          <div className="students-list" aria-busy={loading}>
             {shown.map(student => {
               const latestApplication = student.applications?.[0];
               const latestInvoice = student.invoices?.[0];
@@ -169,6 +154,7 @@ export default function StudentsPage() {
               );
             })}
           </div>
+          <div className="panel-toolbar"><Button variant="secondary" disabled={loading || page<=1} onClick={()=>setPage(value=>value-1)}>السابق</Button><span>صفحة {page} من {pageInfo.totalPages} · {pageInfo.total} طالب</span><Button variant="secondary" disabled={loading || page>=pageInfo.totalPages} onClick={()=>setPage(value=>value+1)}>التالي</Button></div>
         </Card>
 
         <Card className="student-detail">

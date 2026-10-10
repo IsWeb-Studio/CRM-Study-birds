@@ -8,7 +8,8 @@ export function requiredAction(resource,operation) {
  if(['paymentProofs','payouts','walletEntries'].includes(resource))return 'recordPayment';
  if(['consultations','consultationSlots'].includes(resource))return 'manageConsultations';
  if(['services','housing','housingListings','arrival'].includes(resource))return 'manageServices';
- if(resource==='support')return 'manageSupport';
+ if(['support','communityPosts','communitySettings','communitySuspensions','studentOffers','studentOpportunities'].includes(resource))return 'manageSupport';
+ if(resource==='rewardRules')return 'recordPayment';
  // Account roles and employee permissions remain reserved to user administrators.
  if(['employees','websiteUsers','universityAccounts'].includes(resource))return 'manageUsers';
  return 'manageWebsite';

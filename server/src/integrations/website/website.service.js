@@ -3,6 +3,7 @@ import {loadCatalogSnapshot} from './catalogSnapshot.js';
 import { materializeWebsiteRows, nativeResources } from './nativeRecords.js';
 import { randomUUID,createHash } from 'node:crypto';
 import { canOpenModule } from '../../auth.js';
+import {accountIdentity} from './accountBridge.js';
 import {canWriteResource} from './writePolicy.js';
 import multer from 'multer';
 import { resourceModules, websiteSections } from './website.sections.js';
@@ -18,7 +19,7 @@ export const websiteResources = {
   scholarships: { label: 'طلبات المنح', path: '/scholarships/entries', actions: { status: { method: 'PATCH', path: '/scholarships', suffix: '/status', fields: ['status'] } } },
   support: { label: 'تذاكر الدعم', path: '/admin/support-tickets', actions: { escalate:{method:'PATCH',suffix:'/escalate',fields:['escalated','escalationNote']},emergency:{method:'PATCH',suffix:'/emergency',fields:['isEmergency']}, reply: { method: 'PATCH', suffix: '/reply', fields: ['message', 'status'] }, assign: { method: 'PATCH', suffix: '/assign', fields: ['assignedTo'] } } },
   agencies: { label: 'طلبات الوكالة', path: '/admin/agency-requests', actions: { status: { method: 'PATCH', fields: ['status', 'adminNote'] } } },
-  agents: { label: 'الوكلاء', path: '/admin/partners', detail: '/admin/partners',account:true,editPath:'/crm/partners',editMethod:'PATCH',editFields:['name','email','isActive','phone','companyName','website','location','taxId','bio','address','version'] },
+  agents: { label: 'الوكلاء', path: '/admin/partners', detail: '/admin/partners',account:true,editPath:'/crm/partners',editMethod:'PATCH',createPath:'/crm/partners',createFields:['name','email','password','isActive','phone','companyName','website','location','taxId','bio','address'],editFields:['name','email','isActive','phone','companyName','website','location','taxId','bio','address','version'] },
   agentStudents: { label: 'طلاب الوكلاء', path: '/admin/partner-students', actions: { status: { method: 'PATCH', fields: ['applicationStatus', 'notes'] } } },
   verification: { label: 'توثيق الوكلاء', path: '/admin/verification-documents', actions: { review: { method: 'PATCH', fields: ['status', 'reviewNote'] } } },
   payouts: { label: 'طلبات السحب', path: '/admin/payout-requests', actions: { review: { method: 'PATCH', fields: ['status', 'reviewNote'] } } },
@@ -33,13 +34,18 @@ export const websiteResources = {
   favorites: { label: 'اهتمامات الطلاب', path: '/admin/student-favorites' },
   community: { label: 'بلاغات المجتمع', path: '/admin/community-reports' },
   walletEntries: { label: 'حركات محفظة الموقع', path: '/admin/student-financials/wallet-entries',createFields:['studentId','direction','amount','notes'] },
+  studentOffers:{label:'عروض الطلاب',path:'/admin/community-posts/listings?kind=offer',createPath:'/admin/community-posts/listings',editPath:'/admin/community-posts/listings',listingKind:'offer',editFields:['title','organization','country','description','terms','url','validFrom','expiresAt','published']},
+  studentOpportunities:{label:'فرص الطلاب',path:'/admin/community-posts/listings?kind=opportunity',createPath:'/admin/community-posts/listings',editPath:'/admin/community-posts/listings',listingKind:'opportunity',editFields:['title','organization','country','description','terms','url','validFrom','expiresAt','published']},
+  rewardRules:{label:'قواعد مكافآت الطلاب',path:'/admin/student-financials/reward-rules',editFields:['event','title','points','enabled']},
+  communitySettings:{label:'إعدادات المجتمع',path:'/admin/community-settings',singleton:true,editFields:['blockedTerms']},
+  communitySuspensions:{label:'إيقاف النشر في المجتمع',path:'/admin/community-suspensions',createFields:['user','days','reason'],actions:{lift:{method:'DELETE',fields:['note']}}},
   communityPosts: { label: 'منشورات المجتمع', path: '/admin/community-posts', detail: '/admin/community-posts', actions: { update: { method: 'PATCH', fields: ['status', 'moderationNote'] } } },
   moderationLog: { label: 'سجل إشراف المجتمع', path: '/admin/community-moderation-log' },
   universityAccounts: { label: 'حسابات الجامعات', path: '/admin/university-accounts', createFields: ['name', 'email', 'password', 'universityId'], actions: { update: { method: 'PATCH', fields: ['isActive', 'linkedUniversity'] } } },
   employees: { label: 'موظفو الموقع', path: '/admin/employees',account:true,editPath:'/crm/accounts',editMethod:'PATCH',editFields:['name','email','password','isActive','employeeRole','permissions'], actions: { update: { method: 'PATCH', suffix: '/role', fields: ['employeeRole'] } } },
   employeeStats: { label: 'إحصاءات موظفي الموقع', path: '/admin/employee-stats' },
   websiteUsers: { label: 'حسابات الموقع', path: '/admin/users', actions: { update: { method: 'PATCH', fields: ['name', 'email', 'isActive'] } } },
-  marketingAssets: { label: 'مواد تسويق الوكلاء', path: '/admin/marketing-assets', actions: { update: { method: 'PUT', fields: ['title', 'description', 'type', 'published'] } } },
+  marketingAssets: { label: 'مواد تسويق الوكلاء', path: '/admin/marketing-assets', deletable:true, uploadCreate:true, actions: { update: { method: 'PUT', fields: ['title', 'description', 'type', 'published'] } } },
   studyFields: { label: 'مجالات الدراسة', path: '/admin/study-fields', editFields: ['name', 'description', 'image', 'featured', 'sortOrder'] },
   testimonials: { label: 'آراء الطلاب', path: '/admin/testimonials', editFields: ['studentName', 'destination', 'quote', 'avatar', 'rating', 'featured'] },
   recognitions: { label: 'الاعتمادات', path: '/admin/recognitions', editFields: ['title', 'image', 'link', 'detailTitle', 'detailBody', 'detailImage', 'featured', 'sortOrder'] },
@@ -104,7 +110,7 @@ export function createWebsiteClient({ config = () => websiteConfig(), fetchImpl 
   async function readList(path, collection) {
     const rows = [];
     for (let page = 1; page <= 500; page++) {
-      const data = await request(`${path}${path.includes('?') ? '&' : '?'}page=${page}&limit=100`);
+      const data = await request(`${path}${path.includes('?') ? '&' : '?'}page=${page}&limit=100&crmPagination=1`);
       if (Array.isArray(data)) return { rows: data, paginated: false };
       const items = collection ? data[collection] : data.items || data.data;
       if (!Array.isArray(items)) throw fail('صيغة قائمة الموقع غير متوقعة.', 502);
@@ -158,8 +164,9 @@ export function createWebsiteClient({ config = () => websiteConfig(), fetchImpl 
     const def = websiteResources[key];
     if (!def) throw fail('قسم غير معروف.', 404);
     const result = def.singleton ? { rows: [{ ...(await request(def.path)), _id: 'singleton' }], paginated: false } : await list(def.path, def.collection);
+    if(key==='communitySuspensions')result.rows=result.rows.map(row=>({...row,suspensionId:row._id,_id:typeof row.user==='object'?row.user._id:row.user}));
     if (key === 'visaCases') result.rows = result.rows.map(row => ({ ...row, _id: row.applicationId }));
-    return { ...result, source: 'study-birds', fetchedAt: new Date().toISOString(), completeness: result.paginated ? 'paginated' : 'endpoint-limit', singleton: Boolean(def.singleton), detailSupported: Boolean(def.detail), deletable:Boolean(def.deletable),uploadSupported:Boolean(mediaUploads[key] || key==='services'), editFields: def.editFields || [], createFields: def.singleton || def.account ? [] : def.createFields || def.editFields || [], actions: def.actions || {} };
+    return { ...result, source: 'study-birds', fetchedAt: new Date().toISOString(), completeness: result.paginated ? 'paginated' : 'endpoint-limit', singleton: Boolean(def.singleton), detailSupported: Boolean(def.detail), deletable:Boolean(def.deletable),uploadCreate:Boolean(def.uploadCreate),uploadSupported:Boolean(mediaUploads[key] || key==='services'), editFields: def.editFields || [], createFields: def.singleton ? [] : def.createFields || (def.account ? [] : def.editFields || []), actions: def.actions || {} };
   }
   async function detail(key, id) {
     assertId(id);
@@ -194,7 +201,7 @@ export function createWebsiteClient({ config = () => websiteConfig(), fetchImpl 
     if (!['assignment', 'post-admission', 'visa-case'].includes(key)) throw fail('قسم غير مسموح.');
     return request(`/applications/${id}/${key}`);
   }
-  async function editResource(key, id, payload) {
+  async function editResource(key, id, payload, companyId) {
     const def = websiteResources[key];
     const fields = id ? def?.editFields : def?.createFields || def?.editFields;
     if (!fields?.length) throw fail('هذا القسم لا يدعم هذا الإجراء.');
@@ -211,7 +218,7 @@ export function createWebsiteClient({ config = () => websiteConfig(), fetchImpl 
       if (body.country && typeof body.country === 'object') body.country = body.country._id;
       if (body.university && typeof body.university === 'object') body.university = body.university._id;
     }
-    if (def.account && !id) throw fail('إنشاء الحساب من نموذج الطالب أو الموظف.');
+    if (def.account && !id && key!=='agents') throw fail('إنشاء الحساب من نموذج الطالب أو الموظف.');
     if (def.account && body.password === '') delete body.password;
     if (key === 'students') {
       const profileKeys=['phone','nationality','englishFullName','passportNumber','dateOfBirth','gpa','bio','address','intake','nativeLanguage','currentEducation','currentEducationLevel','currentResidenceCountry','currentResidenceRegion','otherLanguages','targetCountries','parentInfo','emergencyContact','englishTest'];
@@ -220,6 +227,8 @@ export function createWebsiteClient({ config = () => websiteConfig(), fetchImpl 
       if(Object.keys(profile).length)body.profile=profile;
     }
     if(key==='agents'){const keys=['phone','companyName','website','location','taxId','bio','address'];const profile=Object.fromEntries(keys.filter(field=>body[field]!==undefined).map(field=>[field,body[field]]));for(const field of keys)delete body[field];if(Object.keys(profile).length)body.profile=profile;}
+    if(def.listingKind)body.kind=def.listingKind;
+    if(key==='agents' && !id){if(!companyId)throw fail('هوية شركة CRM مطلوبة.');body.companyId=companyId;body.recordId=accountIdentity(companyId,'partner',body.email);}
     const result = await request(`${!id && def.createPath ? def.createPath : id && def.editPath ? def.editPath : def.path}${id && !def.singleton ? `/${id}` : ''}`, { method: id ? def.editMethod || 'PUT' : 'POST', body });
     cachedCatalog = null; cacheUntil = 0;
     return result;
@@ -239,7 +248,27 @@ export function createWebsiteClient({ config = () => websiteConfig(), fetchImpl 
     const form=new FormData();form.set(target?.field || 'file',new Blob([file.buffer],{type:file.mimetype}),file.originalname);
     return request(target?.path || `/crm/service-requests/${id}/documents`,{method:'POST',body:form});
   }
-  return { uploadResource, request, catalog, resource, detail, action, studentService, attachment, section, editResource,deleteResource };
+  async function moderateComment(postId,commentId,payload) {
+    assertId(postId);assertId(commentId);
+    if(!payload || Object.keys(payload).some(key=>!['status','moderationNote'].includes(key)) || !['published','hidden'].includes(payload.status) || typeof payload.moderationNote!=='string' || payload.moderationNote.length>500)throw fail('بيانات الإشراف غير صالحة.');
+    const post=await detail('communityPosts',postId);
+    if(!(post.comments || []).some(row=>row._id===commentId))throw fail('التعليق غير موجود في هذا المنشور.',404);
+    return request(`/admin/community-comments/${commentId}`,{method:'PATCH',body:payload});
+  }
+  async function createMarketingAsset(file,payload) {
+    if(!file?.buffer?.length)throw fail('اختر ملفًا.');
+    const fields=['title','description','type','published'];
+    if(!payload || Object.keys(payload).some(key=>!fields.includes(key)))throw fail('حقول مادة التسويق غير مسموحة.');
+    if(typeof payload.title!=='string' || !payload.title.trim() || payload.title.length>160)throw fail('عنوان المادة مطلوب، بحد أقصى 160 حرفًا.');
+    if(payload.description!==undefined && (typeof payload.description!=='string' || payload.description.length>5000))throw fail('الوصف غير صالح.');
+    if(payload.type!==undefined && (typeof payload.type!=='string' || !payload.type.trim() || payload.type.length>60))throw fail('النوع غير صالح.');
+    if(payload.published!==undefined && !['true','false'].includes(String(payload.published)))throw fail('حالة النشر غير صالحة.');
+    const form=new FormData();
+    for(const key of fields)if(payload[key]!==undefined)form.set(key,String(payload[key]));
+    form.set('file',new Blob([file.buffer],{type:file.mimetype}),file.originalname);
+    return request('/admin/marketing-assets',{method:'POST',body:form});
+  }
+  return { moderateComment, createMarketingAsset, uploadResource, request, catalog, resource, detail, action, studentService, attachment, section, editResource,deleteResource };
 }
 function assertId(id) { if (!/^[a-f\d]{24}$/i.test(id || '')) throw fail('معرّف الموقع غير صالح.'); }
 
@@ -318,7 +347,7 @@ export function mountWebsiteRoutes(app, { allowModule, allowAction, client, read
   }));
   for (const method of ['post', 'put']) app[method](`/api/integrations/website/content/:resource${method === 'put' ? '/:id' : ''}`, sectionAccess(req => req.params.resource), writeAccess, wrap(async (req, res) => {
     if (process.env.STUDY_BIRDS_ALLOW_WRITES !== 'true') throw fail('تعديل الموقع غير مفعّل.', 403);
-    res.json(await remoteWrite(req, `content-${method}`, () => client.editResource(req.params.resource, req.params.id, req.body)));
+    res.json(await remoteWrite(req, `content-${method}`, () => client.editResource(req.params.resource, req.params.id, req.body,req.user.companyId)));
   }));
   app.post('/api/integrations/website/files/:kind/:id', sectionAccess(req => req.params.kind === 'payment-proofs' ? 'paymentProofs' : req.params.kind === 'documents' ? 'documents' : req.params.kind === 'support-attachments' ? 'support' : ''), wrap(async (req, res) => {
     res.set('Cache-Control', 'no-store');
@@ -352,6 +381,9 @@ export function mountWebsiteRoutes(app, { allowModule, allowAction, client, read
     data.actions=Object.fromEntries(Object.entries(data.actions || {}).filter(([key])=>canWriteResource(req.user,req.params.resource,key)));
     res.json(data);
   }));
+  app.post('/api/integrations/website/community-posts/:id/comments/:commentId',(req,res,next)=>{req.params.resource='communityPosts';next();},sectionAccess('communityPosts'),writeAccess,wrap(async(req,res)=>res.json(await remoteWrite(req,'comment-moderation',()=>client.moderateComment(req.params.id,req.params.commentId,req.body)))));
+  const marketingUpload=multer({storage:multer.memoryStorage(),limits:{fileSize:5*1024*1024,files:1,fields:4,fieldSize:20000}}).single('file');
+  app.post('/api/integrations/website/marketing-assets',sectionAccess('marketingAssets'),(req,res,next)=>{req.params.resource='marketingAssets';writeAccess(req,res,next);},marketingUpload,wrap(async(req,res)=>res.status(201).json(await remoteWrite(req,'marketing-upload',()=>client.createMarketingAsset(req.file,req.body)))));
   app.post('/api/integrations/website/uploads/:resource/:id',sectionAccess(req=>req.params.resource),writeAccess,fileUpload,wrap(async(req,res)=>res.json(await remoteWrite(req,'upload',()=>client.uploadResource(req.params.resource,req.params.id,req.file)))));
   app.post('/api/integrations/website/service-files/:id/:documentId',sectionAccess('services'),wrap(async(req,res)=>{
     assertId(req.params.id);assertId(req.params.documentId);res.set('Cache-Control','no-store');res.json(await client.request(`/crm/service-requests/${req.params.id}/documents/${req.params.documentId}/access`,{method:'POST'}));

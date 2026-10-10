@@ -6,13 +6,15 @@ import { useNavigate } from 'react-router-dom';
 import { mergeRecords } from '../unifiedRecords.js';
 import { Card, Button, Badge, Spinner, Modal } from '../components/UI.jsx';
 import WebsiteOperations from './WebsiteOperations.jsx';
+import CommunityComments from '../components/CommunityComments.jsx';
+import MarketingAssetUpload from '../components/MarketingAssetUpload.jsx';
 import {websiteApplicationStatuses} from '../websiteApplicationStatuses.js';
 import WebsiteWorkflowPanel, { LinkWebsiteRecordButton } from './WebsiteWorkflowPanel.jsx';
 import { useAuth } from '../auth.jsx';
 import { can, canOpenModule } from '../permissions.js';
 
 const labels = { status: 'الحالة', detailedStatus: 'مرحلة القبول', note: 'ملاحظة للطالب', staffNote: 'ملاحظة الموظف', adminNote: 'ملاحظة الإدارة', reviewNote: 'ملاحظة المراجعة', message: 'الرد', notes: 'ملاحظات', applicationStatus: 'حالة التقديم', assignedTo: 'معرّف الموظف بالموقع', type: 'نوع المستند', result: 'نتيجة الاستشارة', summary: 'ملخص الاستشارة', nextSteps: 'الخطوات التالية', invoiceNumber: 'رقم الفاتورة', description: 'الوصف', amount: 'المبلغ', dueDate: 'الاستحقاق', invoiceUrl: 'رابط الفاتورة', category: 'الفئة', recommendationSummary: 'التوصية', isActive: 'حساب فعال', linkedUniversity: 'معرّف الجامعة', moderationNote: 'سبب الإشراف', name: 'الاسم', email: 'البريد الإلكتروني', employeeRole: 'دور الموظف', title: 'العنوان', published: 'منشور' };
-const actionLabels = {cancel:'إلغاء الحجز',availability:'تفعيل أو إيقاف الموعد',escalate:'تصعيد التذكرة',emergency:'تحديد حالة الطوارئ', status: 'تحديث الحالة', update: 'تحديث الطلب', review: 'مراجعة', reply: 'رد على التذكرة', assign: 'تعيين مسؤول', requestDocument: 'طلب مستند إضافي', outcome: 'نتيجة الاستشارة' };
+const actionLabels = {lift:'رفع إيقاف النشر',cancel:'إلغاء الحجز',availability:'تفعيل أو إيقاف الموعد',escalate:'تصعيد التذكرة',emergency:'تحديد حالة الطوارئ', status: 'تحديث الحالة', update: 'تحديث الطلب', review: 'مراجعة', reply: 'رد على التذكرة', assign: 'تعيين مسؤول', requestDocument: 'طلب مستند إضافي', outcome: 'نتيجة الاستشارة' };
 Object.assign(labels,{enabled:'الموعد متاح',escalated:'تصعيد للمدير',escalationNote:'سبب التصعيد',isEmergency:'حالة طارئة'});
 const statuses = {
   financials: ['unpaid', 'pending-confirmation', 'paid', 'rejected'], paymentProofs: ['pending', 'approved', 'rejected'], communityPosts: ['published', 'hidden'],
@@ -133,6 +135,7 @@ export default function WebsitePage({ embedded = false, resources = null, dialog
   const recordDialog = (
     <Modal open={Boolean(selected)} onClose={() => { if (!busy) { setSelected(null); onDismiss?.(); } }} title="تفاصيل السجل" size="lg">
       {selected && <><p>رقم السجل: {selected._id || '—'}</p><dl className="website-details">{Object.entries(details).filter(([key]) => selected[key] != null).map(([key, label]) => <div key={key}><dt>{label}</dt><dd>{key === 'status' || key === 'detailedStatus' ? statusLabels[selected[key]] || text(selected[key]) : text(selected[key])}</dd></div>)}</dl>
+      {resource==='communityPosts' && <CommunityComments postId={selected._id} comments={selected.comments || []} writable={connection?.writesEnabled && result?.capabilities?.edit} onSaved={()=>{start(selected);onSaved?.();}} />}
       {resource==='support' && <section><h3>سجل الردود</h3>{(selected.replies || []).map((reply,index)=><div className="student-card-row" key={reply._id || index}><strong>{text(reply.user)} · {formatDate(reply.createdAt)}</strong><p>{reply.message}</p></div>)}{!selected.replies?.length && <p>لا توجد ردود حتى الآن.</p>}</section>}
       {error && <div role="alert" className="website-error">{error}</div>}
       {!embedded && !dialogOnly && canOpenModule(user, 'website') && <LinkWebsiteRecordButton resource={resource} record={selected} />}
@@ -164,6 +167,7 @@ export default function WebsitePage({ embedded = false, resources = null, dialog
     </Card>
     {!embedded && connection && canOpenModule(user, 'website') && <WebsiteWorkflowPanel connection={connection} resource={resource} onRefresh={() => load()} />}
     {connection?.writesEnabled && result?.capabilities?.create && (result?.createFields || result?.editFields)?.length > 0 && !result?.singleton && <Button onClick={() => setSelected({})}>إضافة سجل جديد إلى الموقع</Button>}
+    {resource==='marketingAssets' && connection?.writesEnabled && result?.uploadCreate && result?.capabilities?.create && <MarketingAssetUpload onSaved={()=>{setNotice('تمت إضافة المادة إلى الموقع.');onSaved?.();load();}} />}
     {recordDialog}
   </div>;
 }
