@@ -34,7 +34,7 @@ function text(value) {
   return value.name || value.title || value.ar || value.en || value.email || JSON.stringify(value);
 }
 function person(row) { return text(row.student || row.user || row.partner || row.agent || row.parent || row.applicantProfile?.name || row.studentName || row.name); }
-function title(row) { return text(row.program || row.serviceTitle || row.scholarship || row.subject || row.listing || row.title || row.question || row.invoiceNumber || row.name); }
+function title(row) { return text(row.program || row.serviceTitle || row.scholarship || row.subject || row.listing || row.title || row.question || row.invoiceNumber || row.heroTitle || row.storyTitle || row.studentName || row.name); }
 const details = { name: 'الاسم', email: 'البريد', phone: 'الهاتف', status: 'الحالة', detailedStatus: 'مرحلة الطلب', university: 'الجامعة', program: 'البرنامج', student: 'الطالب', partner: 'الوكيل', parent: 'ولي الأمر', serviceTitle: 'الخدمة', notes: 'الملاحظات', adminNote: 'ملاحظة الإدارة', subject: 'الموضوع', message: 'الرسالة', airport: 'المطار', flightNumber: 'رقم الرحلة', arrivalDate: 'موعد الوصول', createdAt: 'تاريخ الإنشاء', updatedAt: 'آخر تحديث', amount: 'المبلغ', price: 'السعر', balance: 'الرصيد', documents: 'المستندات', suggestedFields: 'مجالات مقترحة', suggestedCountries: 'دول مقترحة', invoiceNumber: 'رقم الفاتورة', description: 'الوصف', dueDate: 'تاريخ الاستحقاق', category: 'الفئة', currency: 'العملة', reviewNote: 'ملاحظة المراجعة', body: 'المحتوى', quote: 'رأي الطالب', studentName: 'اسم الطالب', destination: 'وجهة الدراسة', employeeRole: 'دور الموظف', role: 'نوع الحساب', isActive: 'حساب فعال', stats: 'مؤشرات الموظف', author: 'الكاتب', moderationNote: 'سبب الإشراف', recommendationSummary: 'التوصية', contactEmail: 'بريد التواصل' };
 
 export default function WebsitePage({ embedded = false, resources = null, dialogOnly = false, externalRecord = null, onDismiss, onSaved, localRows = [] }) {
@@ -106,7 +106,7 @@ export default function WebsitePage({ embedded = false, resources = null, dialog
   async function deleteRecord(row=selected) {
     if (!window.confirm('حذف السجل الأصلي من الموقع؟ لا يمكن التراجع عن هذا الإجراء.')) return;
     setBusy(true);setError('');
-    try {await api(`/api/integrations/website/content/${resource}/${row._id}/delete`,{method:'POST',body:'{}'});setSelected(null);onSaved?.();if (!dialogOnly) await load();}
+    try {await api(`/api/integrations/website/content/${resource}/${row.sourceId || row._id}/delete`,{method:'POST',body:'{}'});setSelected(null);onSaved?.();if (!dialogOnly) await load();}
     catch(e) {setError(e.message);} finally {setBusy(false);}
   }
   async function choose(action, record = selected) {
@@ -138,8 +138,9 @@ export default function WebsitePage({ embedded = false, resources = null, dialog
       setSelected(null); setNotice('تم حفظ التحديث على الموقع.'); onSaved?.(); if (!dialogOnly) await load();
     } catch (e) { setError(e.message); } finally { setBusy(false); }
   }
-  const catalogResource=['countries','universities','programs','scholarshipCatalog','studyFields','contentServices','housingListings'].includes(resource);
-  const canCreate=connection?.writesEnabled && result?.capabilities?.create && result?.createFields?.length>0;
+  const catalogResource=['countries','universities','programs','scholarshipCatalog','studyFields','contentServices','housingListings','testimonials','recognitions','exhibitions','pastEvents','upcomingEvent','ourStory','faqs','knowledge'].includes(resource);
+  const canCreate=connection?.writesEnabled && result?.capabilities?.create && result?.createFields?.length>0 && !result?.singleton;
+  const canCreateSingleton=['ourStory','upcomingEvent'].includes(resource) && result?.singleton && !result?.singletonExists && connection?.writesEnabled && result?.capabilities?.edit;
   const allowedActions = Object.keys(result?.actions || {}).filter(key => actionLabels[key]);
   const recordDialog = (
     <Modal open={Boolean(selected)} onClose={() => { if (!busy) { setSelected(null); onDismiss?.(); } }} title="تفاصيل السجل" size="lg">
@@ -172,7 +173,7 @@ export default function WebsitePage({ embedded = false, resources = null, dialog
       {connection?.ready && !connection.writesEnabled && <p>الربط في وضع القراءة. تعديل طلبات الموقع معطّل حاليًا.</p>}
     </Card>}
     {error && <div role="alert" className="website-error">{error}</div>}{notice && <div role="status" className="website-notice">{notice}</div>}
-    <Card>{catalogResource && canCreate && <Button onClick={()=>setSelected({})}>إضافة سجل جديد إلى الموقع</Button>}<div className="website-toolbar"><label className="field"><span>نوع الطلبات</span><select value={resource} disabled={loading || busy} onChange={e => { setResource(e.target.value); setSearch(''); }}>{availableResources.map(item => <option key={item.key} value={item.key}>{item.label}</option>)}</select></label><label className="field"><span>بحث في القائمة المعروضة</span><input type="search" placeholder="الاسم أو الخدمة أو رقم الطلب" value={search} onChange={e => setSearch(e.target.value)} /></label><Button variant="secondary" disabled={!connection?.ready || loading || busy} onClick={() => load()}>تحديث القائمة</Button></div>
+    <Card>{canCreateSingleton && <Button onClick={()=>setSelected({_id:'singleton',__new:true})}>إضافة المحتوى</Button>}{catalogResource && canCreate && <Button onClick={()=>setSelected({})}>إضافة سجل جديد إلى الموقع</Button>}<div className="website-toolbar"><label className="field"><span>نوع الطلبات</span><select value={resource} disabled={loading || busy} onChange={e => { setResource(e.target.value); setSearch(''); }}>{availableResources.map(item => <option key={item.key} value={item.key}>{item.label}</option>)}</select></label><label className="field"><span>بحث في القائمة المعروضة</span><input type="search" placeholder="الاسم أو الخدمة أو رقم الطلب" value={search} onChange={e => setSearch(e.target.value)} /></label><Button variant="secondary" disabled={!connection?.ready || loading || busy} onClick={() => load()}>تحديث القائمة</Button></div>
       {loading ? <Spinner /> : <><p>{rows.length} سجل معروض {result?.fetchedAt && `• آخر قراءة: ${formatDate(result.fetchedAt)}`}</p>
       {result?.stale && <p role="status" className="website-hint">تعذر تحديث القائمة؛ المعروض آخر بيانات الموقع المحفوظة. {(result.warnings || []).join('، ')}</p>}
       {result?.completeness === 'endpoint-limit' && <p className="website-hint">هذه قائمة السجلات التي أتاحتها واجهة الموقع؛ بعض الأقسام تضع حدًا لعدد السجلات.</p>}

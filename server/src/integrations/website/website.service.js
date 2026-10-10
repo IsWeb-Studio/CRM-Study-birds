@@ -49,22 +49,22 @@ export const websiteResources = {
   studyFields: { label: 'مجالات الدراسة', path: '/admin/study-fields', editFields: ['name', 'description', 'image', 'featured', 'sortOrder'] },
   testimonials: { label: 'آراء الطلاب', path: '/admin/testimonials', editFields: ['studentName', 'destination', 'quote', 'avatar', 'rating', 'featured'] },
   recognitions: { label: 'الاعتمادات', path: '/admin/recognitions', editFields: ['title', 'image', 'link', 'detailTitle', 'detailBody', 'detailImage', 'featured', 'sortOrder'] },
-  exhibitions: { label: 'المقالات والمعارض', path: '/admin/exhibitions', editFields: ['title', 'summary', 'image', 'body', 'featured', 'published'] },
-  pastEvents: { label: 'الفعاليات السابقة', path: '/admin/past-events', editFields: ['title', 'category', 'eventDate', 'countryCode', 'summary', 'coverImage', 'featured', 'sortOrder'] },
+  exhibitions: { label: 'المقالات والمعارض', path: '/admin/exhibitions', editFields: ['title','summary','image','body','articleTitle','articleHeadings','articleBodies','articleTitleColor','articleHeadingColor','articleBodyColor','titleColor','ctaText','ctaUrl','youtubeUrl','country','featured','published','customSlug','category','authorName','publishedAt','seoTitle','metaDescription','focusKeyword','seoKeywords','canonicalUrl','ogTitle','ogDescription','ogImage','twitterTitle','twitterDescription','twitterImage','imageAltText','robotsIndex','robotsFollow'] },
+  pastEvents: { label: 'الفعاليات السابقة', path: '/admin/past-events', editFields: ['title', 'category', 'eventDate', 'countryCode', 'summary', 'coverImage','mediaItems', 'featured', 'sortOrder'] },
   upcomingEvent: { label: 'الفعالية القادمة', path: '/admin/upcoming-event', singleton: true, editFields: ['title', 'subtitle', 'eventType', 'eventDate', 'ctaText', 'backgroundImage', 'isPublished'] },
-  ourStory: { label: 'من نحن', path: '/admin/our-story', singleton: true, editFields: ['heroEyebrow', 'heroTitle', 'heroBody', 'heroImage', 'heroCtaText', 'heroCtaLink', 'storyTitle', 'storyBody', 'storyImage', 'missionTitle', 'missionBody', 'visionTitle', 'visionBody'] },
+  ourStory: { label: 'من نحن', path: '/admin/our-story', singleton: true, editFields: ['heroEyebrow', 'heroTitle', 'heroBody', 'heroImage', 'heroCtaText', 'heroCtaLink', 'storyTitle', 'storyBody', 'storyImage', 'missionTitle', 'missionBody', 'visionTitle','visionBody','storyEyebrow','foundersTitle','foundersBody','founders','timelineTitle','timelineBody','timelineItems','impactTitle','impactBody','impactStats','isPublished'] },
   siteSettings: { label: 'إعدادات الموقع', path: '/admin/site-settings', singleton: true, editFields: ['contactEmail', 'whatsappUrl', 'facebookUrl', 'instagramUrl', 'tiktokUrl', 'britishMembershipUrl', 'supportHours', 'officeLocations', 'leadCapturePromptEnabled'] },
   countries: { label: 'إدارة الدول', path: '/admin/countries', editFields: ['name', 'code', 'heroTitle', 'heroSubtitle', 'heroImage', 'description'] },
   universities: { label: 'إدارة الجامعات', path: '/universities', detail: '/universities', editFields: ['name', 'country', 'city', 'language', 'overview', 'logo', 'campusImages','studentCount','specialtyCount','ranking','tuitionRange','requiredDocuments','accreditations','articleTitle','articleHeadings','articleBodies','featured', 'isPartnerInstitution'] },
   programs: { label: 'إدارة البرامج', path: '/programs', detail: '/programs', editFields: ['title', 'university', 'degreeLevel', 'fieldOfStudy', 'language', 'duration', 'tuition', 'partnerTuition', 'summary','fieldsOfStudy','requirements','careerOpportunities', 'requiredDocumentTypes', 'featured'] },
   scholarshipCatalog: {label:'دليل المنح',path:'/scholarships/manage',createPath:'/scholarships',editPath:'/scholarships',deletePath:'/scholarships',editFields:['title','university','country','degree','funding','eligibility','deadline','active']},
   contentServices: { label: 'إدارة الخدمات', path: '/admin/our-services', editFields: ['title','detailTitle','detailBody','price','priceDescription','durationDays','estimatedDuration','journeyStage','requirementsText','documentsText','image','detailImage','featured','sortOrder','country'] },
-  faqs: { label: 'الأسئلة الشائعة', path: '/admin/faqs', editFields: ['question', 'answer'] },
-  knowledge: { label: 'قاعدة المعرفة', path: '/admin/knowledge-base', editFields: ['title', 'body', 'category', 'summary', 'published'] },
+  faqs: { label: 'الأسئلة الشائعة', path: '/admin/faqs', editFields: ['question','answer','country','featured','sortOrder'] },
+  knowledge: { label: 'قاعدة المعرفة', path: '/admin/knowledge-base', editFields: ['title','body','category','summary','resourceType','fileUrl','videoUrl','targetRole','sortOrder','published'] },
 };
 
 
-for(const key of ['universities','programs','scholarshipCatalog','countries','studyFields','testimonials','recognitions','exhibitions','pastEvents','contentServices','faqs','knowledge','applications'])websiteResources[key].deletable=true;
+for(const key of ['universities','programs','scholarshipCatalog','countries','studyFields','testimonials','recognitions','exhibitions','pastEvents','contentServices','faqs','knowledge','applications','ourStory','upcomingEvent'])websiteResources[key].deletable=true;
 const mediaUploads={universities:{path:'/universities/upload-images',field:'files'},countries:{path:'/admin/countries/upload-image'},studyFields:{path:'/admin/study-fields/upload-image'},testimonials:{path:'/admin/testimonials/upload-avatar'},recognitions:{path:'/admin/recognitions/upload-image'},contentServices:{path:'/admin/our-services/upload-image'},ourStory:{path:'/admin/our-story/upload-image'},exhibitions:{path:'/admin/exhibitions/upload-image'},upcomingEvent:{path:'/admin/upcoming-event/upload-image'},pastEvents:{path:'/admin/past-events/upload-media'}};
 
 const fail = (message, status = 400) => Object.assign(new Error(message), { status });
@@ -163,7 +163,9 @@ export function createWebsiteClient({ config = () => websiteConfig(), fetchImpl 
   async function resource(key) {
     const def = websiteResources[key];
     if (!def) throw fail('قسم غير معروف.', 404);
-    const result = def.singleton ? { rows: [{ ...(await request(def.path)), _id: 'singleton' }], paginated: false } : await list(def.path, def.collection);
+    let result;
+    if(def.singleton){const document=await request(def.path) || {};const empty=['ourStory','upcomingEvent'].includes(key) && !document._id;result={rows:empty?[]:[{...document,sourceId:document._id,_id:'singleton'}],singletonExists:!empty,paginated:false};}
+    else result=await list(def.path,def.collection);
     if(key==='communitySuspensions')result.rows=result.rows.map(row=>({...row,suspensionId:row._id,_id:typeof row.user==='object'?row.user._id:row.user}));
     if (key === 'visaCases') result.rows = result.rows.map(row => ({ ...row, _id: row.applicationId }));
     return { ...result, source: 'study-birds', fetchedAt: new Date().toISOString(), completeness: result.paginated ? 'paginated' : 'endpoint-limit', singleton: Boolean(def.singleton), detailSupported: Boolean(def.detail), deletable:Boolean(def.deletable),uploadCreate:Boolean(def.uploadCreate),uploadSupported:Boolean(mediaUploads[key] || key==='services'), editFields: def.editFields || [], createFields: def.singleton ? [] : def.createFields || (def.account ? [] : def.editFields || []), actions: def.actions || {} };
@@ -214,7 +216,7 @@ export function createWebsiteClient({ config = () => websiteConfig(), fetchImpl 
       const existing = def.singleton ? (await request(def.path) || {}) : def.detail ? await detail(key, id) : (await resource(key)).rows.find(row => row._id === id);
       if (!existing) throw fail('السجل غير موجود.', 404);
       body = { ...existing, ...payload };
-      for (const field of ['_id', '__v', 'createdAt', 'updatedAt', 'slug', 'offeredAt', 'relatedPrograms']) delete body[field];
+      for (const field of ['_id', '__v', 'createdAt', 'updatedAt', 'slug', 'offeredAt', 'relatedPrograms','sourceId','__new']) delete body[field];
       if (body.country && typeof body.country === 'object') body.country = body.country._id;
       if (body.university && typeof body.university === 'object') body.university = body.university._id;
     }
@@ -325,6 +327,7 @@ export function mountWebsiteRoutes(app, { allowModule, allowAction, client, read
     if (process.env.STUDY_BIRDS_ALLOW_WRITES !== 'true') throw fail('تعديل الموقع غير مفعّل.', 403);
     res.json(await remoteWrite(req, 'student-service', () => client.studentService(req.params.id, req.params.kind, req.body)));
   }));
+  app.get('/api/integrations/website/content-countries',sectionAccess('exhibitions'),wrap(async(req,res)=>res.json(await client.request('/admin/countries'))));
   app.get('/api/integrations/website/service-countries',sectionAccess('contentServices'),wrap(async(req,res)=>res.json(await client.request('/admin/countries'))));
   app.get('/api/integrations/website/service-assignees',sectionAccess('services'),wrap(async(req,res)=>res.json(await client.request('/crm/service-assignees'))));
   app.get('/api/integrations/website/support-assignees',sectionAccess('support'),wrap(async(req,res)=>res.json(await client.request('/crm/support-assignees'))));

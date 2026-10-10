@@ -80,3 +80,12 @@ test('ticket details, replies and assignment use the protected support endpoints
  await client.action('support',id('a'),'assign',{assignedTo:null});assert.equal(JSON.parse(calls[3].options.body).assignedTo,null);
  await assert.rejects(client.action('support',id('a'),'assign',{role:'admin'}));assert.equal(calls.length,4);
 });
+
+test('content CRUD retains publication and article fields and singleton existence matches real source records',async()=>{
+ let existing=false;const calls=[];const client=createWebsiteClient({config:()=>({enabled:true,ready:true,baseUrl:'https://site.example/api',token:'fixture'}),fetchImpl:async(url,options)=>{calls.push({url,options});return {ok:true,json:async()=>url.endsWith('/our-story')?existing?{_id:id('a'),heroTitle:'Story',founders:[{name:'Founder'}]}:{heroTitle:''}:new URL(url).pathname.endsWith('/exhibitions')?[{_id:id('b'),title:'Existing',customSlug:'existing',seoTitle:'Keep',published:false,articleHeadings:['Keep heading'],articleBodies:['Keep body']}]:{_id:id('b')}};}});
+ assert.equal((await client.resource('ourStory')).rows.length,0);existing=true;const story=await client.resource('ourStory');assert.equal(story.singletonExists,true);assert.equal(story.rows[0]._id,'singleton');assert.equal(story.rows[0].sourceId,id('a'));
+ await client.editResource('ourStory','singleton',{heroTitle:'Changed',founders:[{name:'Updated Founder'}]});assert.equal(calls.at(-1).options.method,'PUT');assert.equal(JSON.parse(calls.at(-1).options.body).sourceId,undefined);
+ await client.editResource('exhibitions',id('b'),{title:'Changed'});const article=JSON.parse(calls.at(-1).options.body);assert.equal(article.seoTitle,'Keep');assert.deepEqual(article.articleBodies,['Keep body']);assert.equal(article.published,false);
+ for(const resource of ['testimonials','recognitions','exhibitions','pastEvents','contentServices','faqs','knowledge']){await client.deleteResource(resource,id('b'));assert.equal(calls.at(-1).options.method,'DELETE');}
+ await client.deleteResource('ourStory',id('a'));assert.equal(calls.at(-1).url,`https://site.example/api/admin/our-story/${id('a')}`);
+});
