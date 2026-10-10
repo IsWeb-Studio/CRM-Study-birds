@@ -60,7 +60,7 @@ export default function WebsiteOperations({ resource, record, writesEnabled, edi
         if (dates.has(key)) { const date = value ? new Date(value) : null; value = date && Number.isFinite(date.getTime()) ? new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16) : ''; }
         if(arrayFields.has(key))value=(Array.isArray(value)?value:[]).join('\n');
         if(blockFields.has(key))value=Array.isArray(value)?value:[];
-        if(objectFields[key] || resource==='countries' && key==='name')value=value && typeof value==='object'?value:{};
+        if(objectFields[key])value=value && typeof value==='object'?value:{};
         values[key] = value;
       }
       if(resource==='consultationSlots' && !values.mode)values.mode='online';

@@ -3,6 +3,7 @@ import { EyeOff, FileDown, Search, UserRound } from 'lucide-react';
 import { api, apiDownload, formatMoney } from '../api.js';
 import { Badge, Button, Card, Field, Spinner, Toast } from '../components/UI.jsx';
 import { useUnifiedCatalog } from '../components/UnifiedSectionContext.jsx';
+import CatalogMultiFilter from '../components/CatalogMultiFilter.jsx';
 import UniversityDirectory from '../components/UniversityDirectory.jsx';
 import SourceRecordActions from '../components/SourceRecordActions.jsx';
 
@@ -265,24 +266,8 @@ export default function UniversitiesPage() {
               <option value="Quota Full">Quota Full</option>
             </select>
           </Field>
-          <Field label="المدن">
-            <div className="filter-chip-list">
-              {availableCities.map(city => (
-                <button key={city} className={`filter-chip ${filters.cities.includes(city) ? 'active' : ''}`} onClick={() => toggleListValue('cities', city)} type="button">
-                  {city}
-                </button>
-              ))}
-            </div>
-          </Field>
-          <Field label="لغات الدراسة" className="field-full">
-            <div className="filter-chip-list">
-              {languages.map(language => (
-                <button key={language} className={`filter-chip ${filters.languages.includes(language) ? 'active' : ''}`} onClick={() => toggleListValue('languages', language)} type="button">
-                  {language}
-                </button>
-              ))}
-            </div>
-          </Field>
+          <CatalogMultiFilter label="المدن" options={availableCities} value={filters.cities} onChange={cities=>setFilters(current=>({...current,cities}))}/>
+          <CatalogMultiFilter label="لغات الدراسة" options={languages} value={filters.languages} onChange={languages=>setFilters(current=>({...current,languages}))}/>
         </div>
       </Card>
 

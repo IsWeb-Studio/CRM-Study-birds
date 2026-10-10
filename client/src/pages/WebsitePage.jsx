@@ -101,10 +101,10 @@ export default function WebsitePage({ embedded = false, resources = null, dialog
     if(!file)return;setBusy(true);setError('');
     try{const body=new FormData();body.set('file',file);await api(`/api/integrations/website/uploads/services/${selected._id}`,{method:'POST',body});await start(selected);onSaved?.();}catch(e){setError(e.message);}finally{setBusy(false);}
   }
-  async function deleteRecord() {
+  async function deleteRecord(row=selected) {
     if (!window.confirm('حذف السجل الأصلي من الموقع؟ لا يمكن التراجع عن هذا الإجراء.')) return;
     setBusy(true);setError('');
-    try {await api(`/api/integrations/website/content/${resource}/${selected._id}/delete`,{method:'POST',body:'{}'});setSelected(null);onSaved?.();if (!dialogOnly) await load();}
+    try {await api(`/api/integrations/website/content/${resource}/${row._id}/delete`,{method:'POST',body:'{}'});setSelected(null);onSaved?.();if (!dialogOnly) await load();}
     catch(e) {setError(e.message);} finally {setBusy(false);}
   }
   async function choose(action) {
@@ -131,6 +131,8 @@ export default function WebsitePage({ embedded = false, resources = null, dialog
       setSelected(null); setNotice('تم حفظ التحديث على الموقع.'); onSaved?.(); if (!dialogOnly) await load();
     } catch (e) { setError(e.message); } finally { setBusy(false); }
   }
+  const catalogResource=['countries','universities','programs','scholarshipCatalog','studyFields'].includes(resource);
+  const canCreate=connection?.writesEnabled && result?.capabilities?.create && result?.createFields?.length>0;
   const allowedActions = Object.keys(result?.actions || {}).filter(key => actionLabels[key]);
   const recordDialog = (
     <Modal open={Boolean(selected)} onClose={() => { if (!busy) { setSelected(null); onDismiss?.(); } }} title="تفاصيل السجل" size="lg">
@@ -141,7 +143,7 @@ export default function WebsitePage({ embedded = false, resources = null, dialog
       {!embedded && !dialogOnly && canOpenModule(user, 'website') && <LinkWebsiteRecordButton resource={resource} record={selected} />}
       {selected.__crm && canOpenModule(user, 'catalogManagement') && <Button onClick={() => navigate('/catalog-management')}>تحرير في الدليل الدراسي</Button>}
       {!selected.__crm && <WebsiteOperations resource={resource} record={selected} uploadSupported={result?.uploadSupported && result?.capabilities?.upload} editFields={selected._id ? result?.editFields || [] : result?.createFields || result?.editFields || []} writesEnabled={connection?.writesEnabled && result?.capabilities?.edit} onSaved={() => { setSelected(null); onSaved?.(); if (!dialogOnly) load(); }} />}
-      {selected._id && !selected.__crm && connection?.writesEnabled && result?.deletable && result?.capabilities?.delete && <Button variant="danger" disabled={busy} onClick={deleteRecord}>حذف السجل</Button>}
+      {selected._id && !selected.__crm && connection?.writesEnabled && result?.deletable && result?.capabilities?.delete && <Button variant="danger" disabled={busy} onClick={()=>deleteRecord()}>حذف السجل</Button>}
       {resource==='services' && selected._id && connection?.writesEnabled && result?.capabilities?.upload && <label className="field"><span>إرفاق مستند للخدمة، حتى 5 ميجابايت</span><input type="file" disabled={busy} accept=".pdf,.png,.jpg,.jpeg,.webp,.doc,.docx" onChange={e=>uploadDocument(e.target.files?.[0])}/></label>}
       {['documents', 'paymentProofs'].includes(resource) && <Button disabled={busy} variant="secondary" onClick={() => openFile(resource === 'documents' ? 'documents' : 'payment-proofs', selected._id)}>فتح الملف</Button>}
       {Array.isArray(selected.documents) && selected.documents.filter(doc => doc && typeof doc === 'object' && doc._id).map(doc => <Button key={doc._id} disabled={busy} variant="secondary" onClick={() => openFile('documents', doc._id)}>{doc.fileName || doc.type || 'فتح مستند'}</Button>)}
@@ -159,14 +161,14 @@ export default function WebsitePage({ embedded = false, resources = null, dialog
       {connection?.ready && !connection.writesEnabled && <p>الربط في وضع القراءة. تعديل طلبات الموقع معطّل حاليًا.</p>}
     </Card>}
     {error && <div role="alert" className="website-error">{error}</div>}{notice && <div role="status" className="website-notice">{notice}</div>}
-    <Card><div className="website-toolbar"><label className="field"><span>نوع الطلبات</span><select value={resource} disabled={loading || busy} onChange={e => { setResource(e.target.value); setSearch(''); }}>{availableResources.map(item => <option key={item.key} value={item.key}>{item.label}</option>)}</select></label><label className="field"><span>بحث في القائمة المعروضة</span><input type="search" placeholder="الاسم أو الخدمة أو رقم الطلب" value={search} onChange={e => setSearch(e.target.value)} /></label><Button variant="secondary" disabled={!connection?.ready || loading || busy} onClick={() => load()}>تحديث القائمة</Button></div>
+    <Card>{catalogResource && canCreate && <Button onClick={()=>setSelected({})}>إضافة سجل جديد إلى الموقع</Button>}<div className="website-toolbar"><label className="field"><span>نوع الطلبات</span><select value={resource} disabled={loading || busy} onChange={e => { setResource(e.target.value); setSearch(''); }}>{availableResources.map(item => <option key={item.key} value={item.key}>{item.label}</option>)}</select></label><label className="field"><span>بحث في القائمة المعروضة</span><input type="search" placeholder="الاسم أو الخدمة أو رقم الطلب" value={search} onChange={e => setSearch(e.target.value)} /></label><Button variant="secondary" disabled={!connection?.ready || loading || busy} onClick={() => load()}>تحديث القائمة</Button></div>
       {loading ? <Spinner /> : <><p>{rows.length} سجل معروض {result?.fetchedAt && `• آخر قراءة: ${formatDate(result.fetchedAt)}`}</p>
       {result?.stale && <p role="status" className="website-hint">تعذر تحديث القائمة؛ المعروض آخر بيانات الموقع المحفوظة. {(result.warnings || []).join('، ')}</p>}
       {result?.completeness === 'endpoint-limit' && <p className="website-hint">هذه قائمة السجلات التي أتاحتها واجهة الموقع؛ بعض الأقسام تضع حدًا لعدد السجلات.</p>}
-      <div className="website-table-wrap"><table className="catalog-table"><thead><tr><th>المصدر</th><th>الاسم / مقدم الطلب</th><th>الخدمة / البرنامج</th><th>الحالة</th><th>التاريخ</th><th>التفاصيل</th></tr></thead><tbody>{rows.map((row, index) => <tr key={row._id || index}><td><Badge tone={row.__crm ? 'neutral' : 'blue'}>{row.__crm ? 'CRM' : 'مرتبط'}</Badge></td><td>{person(row)}</td><td>{title(row)}</td><td>{statusLabels[row.detailedStatus || row.status] || row.status || '—'}</td><td>{formatDate(row.createdAt)}</td><td><Button variant="secondary" onClick={() => start(row)}>عرض</Button></td></tr>)}</tbody></table></div>{!rows.length && !error && <p>لا توجد سجلات لعرضها.</p>}</>}
+      <div className="website-table-wrap"><table className="catalog-table"><thead><tr><th>المصدر</th><th>{catalogResource?"اسم العنصر":"الاسم / مقدم الطلب"}</th><th>{catalogResource?"بيانات إضافية":"الخدمة / البرنامج"}</th><th>الحالة</th><th>التاريخ</th><th>التفاصيل</th></tr></thead><tbody>{rows.map((row, index) => <tr key={row._id || index}><td><Badge tone={row.__crm ? 'neutral' : 'blue'}>{row.__crm ? 'CRM' : 'مرتبط'}</Badge></td><td>{catalogResource ? title(row) : person(row)}</td><td>{catalogResource?[resource==='countries'?row.code:resource==='studyFields'?row.description:text(row.university || row.country),row.degreeLevel,row.language].filter(Boolean).join(' · ') || '—':title(row)}</td><td>{statusLabels[row.detailedStatus || row.status] || row.status || '—'}</td><td>{formatDate(row.createdAt)}</td><td><div className="table-actions"><Button variant="secondary" onClick={() => start(row)}>{catalogResource && connection?.writesEnabled && result?.capabilities?.edit?"تعديل":"عرض"}</Button>{catalogResource && !row.__crm && connection?.writesEnabled && result?.deletable && result?.capabilities?.delete && <Button variant="danger" disabled={busy} onClick={()=>deleteRecord(row)}>حذف</Button>}</div></td></tr>)}</tbody></table></div>{!rows.length && !error && <p>لا توجد سجلات لعرضها.</p>}</>}
     </Card>
     {!embedded && connection && canOpenModule(user, 'website') && <WebsiteWorkflowPanel connection={connection} resource={resource} onRefresh={() => load()} />}
-    {connection?.writesEnabled && result?.capabilities?.create && (result?.createFields || result?.editFields)?.length > 0 && !result?.singleton && <Button onClick={() => setSelected({})}>إضافة سجل جديد إلى الموقع</Button>}
+    {!catalogResource && connection?.writesEnabled && result?.capabilities?.create && (result?.createFields || result?.editFields)?.length > 0 && !result?.singleton && <Button onClick={() => setSelected({})}>إضافة سجل جديد إلى الموقع</Button>}
     {resource==='marketingAssets' && connection?.writesEnabled && result?.uploadCreate && result?.capabilities?.create && <MarketingAssetUpload onSaved={()=>{setNotice('تمت إضافة المادة إلى الموقع.');onSaved?.();load();}} />}
     {recordDialog}
   </div>;

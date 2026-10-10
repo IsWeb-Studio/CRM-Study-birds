@@ -450,3 +450,5 @@ th{text-align:right}
 .inbox-toolbar .inbox-filters{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(140px,100%),1fr));gap:9px;min-width:0;width:100%}
 .inbox-filters select{width:100%;min-width:0;height:44px;padding:0 10px;border:1px solid var(--line);border-radius:10px;background:#fff;color:#404859;font-size:12px;text-overflow:ellipsis}
 .inbox-filters select:focus-visible{outline:2px solid var(--purple);outline-offset:2px}
+
+.catalog-filter-summary{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}.catalog-filters-grid .multi-select-trigger{width:100%;height:42px;min-width:0;outline:0}.catalog-filters-grid .multi-select-trigger:focus-visible{outline:2px solid #9e94ff;outline-offset:1px}.catalog-filters-grid .multi-select-menu input[type="checkbox"]{width:14px;height:14px;flex:0 0 14px}.catalog-filters-grid .field{min-width:0}

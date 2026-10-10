@@ -53,6 +53,8 @@ const modules = [
   { to: '/hr', label: 'الموارد البشرية', icon: UsersRound, roles: ['admin', 'management', 'hr'] },
   { to: '/finance', label: 'المالية', icon: WalletCards, roles: ['admin', 'management', 'finance'] },
   { to: '/activity', label: 'سجل النشاط', icon: Activity, roles: ['admin', 'management'] },
+  { to: '/university-management', label: 'إدارة الجامعات', icon: Building2, roles: ['admin','management','consultant'] },
+  { to: '/countries', label: 'إدارة الدول', icon: Building2, roles: ['admin','management'] },
   { to: '/universities', label: 'دليل الجامعات', icon: Building2, roles: ['admin', 'management', 'consultant'] },
   { to: '/programs', label: 'البرامج', icon: BookOpenCheck, roles: ['admin', 'management'] },
   { to: '/scholarships', label: 'المنح', icon: Sparkles, roles: ['admin', 'management'] },
@@ -85,6 +87,8 @@ const titles = {
   '/hr': ['الموارد البشرية', 'ملفات الموظفين والحضور والأداء داخل الفريق.'],
   '/finance': ['القسم المالي', 'الفواتير والمدفوعات والعمولات والأرصدة المستحقة.'],
   '/activity': ['سجل النشاط', 'تسلسل زمني للنشاطات عبر جميع الأقسام.'],
+  '/university-management':['إدارة الجامعات','إضافة وتعديل وحذف جامعات الموقع من داخل CRM.'],
+  '/countries':['إدارة الدول','إضافة وتعديل وحذف دول الدليل الدراسي.'],
   '/universities': ['دليل الجامعات', 'أداة تشغيلية للبحث المتقدم عن الجامعات والبرامج وإنشاء عروض الأسعار.'],
   '/programs': ['البرامج', 'عرض البرامج الدراسية بشكل مستقل مع الأسعار والفلاتر والبحث السريع.'],
   '/scholarships': ['المنح', 'عرض المنح الدراسية بشكل مستقل مع تفاصيلها الكاملة وفلاتر البحث.'],
@@ -94,6 +98,8 @@ const titles = {
 
 function routeToModuleKey(route) {
   if (route === '/') return null;
+  if(route==='/countries')return 'catalogManagement';
+  if(route==='/university-management')return 'universities';
   return route.slice(1).replace(/-([a-z])/g, (_, char) => char.toUpperCase());
 }
 

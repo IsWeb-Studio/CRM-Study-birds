@@ -76,6 +76,8 @@ function AppRoutes() {
         <Route path="hr" element={<Guard module="hr"><SectionWorkspace module="hr"><HR /></SectionWorkspace></Guard>} />
         <Route path="finance" element={<Guard module="finance"><SectionWorkspace module="finance"><Finance /></SectionWorkspace></Guard>} />
         <Route path="activity" element={<Guard module="activity"><ActivityPage /></Guard>} />
+        <Route path="countries" element={<Guard module="catalogManagement"><WebsitePage embedded resources={["countries"]}/></Guard>} />
+        <Route path="university-management" element={<Guard module="universities"><WebsitePage embedded resources={["universities"]}/></Guard>} />
         <Route path="universities" element={<Guard module="universities"><SectionWorkspace module="universities"><UniversitiesPage /></SectionWorkspace></Guard>} />
         <Route path="programs" element={<Guard module="programs"><SectionWorkspace module="programs"><ProgramsCatalogPage /></SectionWorkspace></Guard>} />
         <Route path="scholarships" element={<Guard module="scholarships"><SectionWorkspace module="scholarships"><ScholarshipsPage /></SectionWorkspace></Guard>} />
