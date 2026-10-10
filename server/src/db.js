@@ -1,4 +1,5 @@
 import fs from 'node:fs/promises';
+import mutationQueue from './integrations/website/twoWay/safeMutationQueue.cjs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { MongoClient } from 'mongodb';
@@ -14,7 +15,6 @@ if (!mongoUri) {
   throw new Error('MONGODB_URI is required. The server now supports MongoDB only.');
 }
 
-let queue = Promise.resolve();
 let mongoClient;
 let mongoCollectionPromise;
 let dbCache;
@@ -317,15 +317,15 @@ export async function writeDb(data) {
   return writeMongoDb(data);
 }
 
-export function mutateDb(mutator) {
-  queue = queue.catch(() => undefined).then(async () => {
-    const data = await readDb();
-    const result = await mutator(data);
-    await writeDb(data);
-    return result;
-  });
-  return queue;
-}
+export const mutateDb = mutationQueue.createMutationQueue({
+  read: readDb,
+  write: writeDb,
+  onFailure: () => {
+    dbCache = undefined;
+    dbCacheExpiresAt = 0;
+    dbCachePromise = undefined;
+  },
+});
 
 export function isMongoDbEnabled() {
   return true;

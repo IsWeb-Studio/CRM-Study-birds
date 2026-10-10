@@ -1,3 +1,4 @@
+import {mountTwoWayReadiness} from './integrations/website/twoWay/readiness.js';
 import {loadCatalogSnapshot} from './integrations/website/catalogSnapshot.js';
 import {mountFinancialReconciliation} from './integrations/website/financialReconciliation.js';
 import {mountInvoiceWorkspace} from './integrations/website/invoiceWorkspace.js';
@@ -3577,6 +3578,7 @@ app.use('/api', requireAuth, async (req, res, next) => {
 });
 
 mountWebsiteRoutes(app, { allowModule, allowAction, client: websiteClient, readDb, mutateDb });
+mountTwoWayReadiness(app,{allowModule,allowRoles});
 mountAccountBridge(app, {client:websiteClient,allowAction,allowModule,readDb,mutateDb});
 mountStudentWorkspace(app,{allowAction,allowModule,readDb,mutateDb});
 mountInvoiceWorkspace(app,{allowAction,allowModule,mutateDb});
