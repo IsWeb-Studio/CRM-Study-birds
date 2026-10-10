@@ -9,7 +9,7 @@ export const websiteSections = {
   programs: ['programs'],
   scholarships: ['scholarshipCatalog','scholarships'],
   catalogManagement: ['countries', 'universities', 'programs', 'scholarshipCatalog','studyFields'],
-  services: ['services', 'housing', 'housingListings', 'arrival'],
+  services: ['services', 'contentServices', 'housing', 'housingListings', 'arrival'],
   partners: ['agencies', 'agents', 'agentStudents', 'verification', 'marketingAssets'],
   content: ['contentServices', 'faqs', 'knowledge', 'testimonials', 'recognitions', 'exhibitions', 'pastEvents', 'upcomingEvent', 'ourStory'],
   hr: ['employees', 'employeeStats'],

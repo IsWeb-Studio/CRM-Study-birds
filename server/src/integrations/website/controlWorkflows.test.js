@@ -58,3 +58,14 @@ test('partner editing uses the source account and keeps verification and commiss
  assert.equal(calls.length,1);assert.equal(calls[0].url,`https://site.example/api/crm/partners/${id('a')}`);assert.deepEqual(JSON.parse(calls[0].options.body).profile,{companyName:'Agency',taxId:'123'});
  await assert.rejects(client.editResource('agents',id('a'),{verificationStatus:'verified'}));assert.equal(calls.length,1);
 });
+
+test('service staff manage definitions in their section and forward versioned lifecycle changes',async()=>{
+ const staff={role:'management',permissionMode:'custom',permissions:{modules:['services'],actions:['manageServices']}};
+ assert.equal(canWriteResource(staff,'contentServices','create'),true);assert.equal(canWriteResource(staff,'services','update'),true);assert.equal(canWriteResource(staff,'websiteUsers','edit'),false);
+ const calls=[];const client=createWebsiteClient({config:()=>({enabled:true,ready:true,baseUrl:'https://site.example/api',token:'fixture'}),fetchImpl:async(url,options)=>{calls.push({url,options});return {ok:true,json:async()=>({_id:id('a')})};}});
+ await client.action('services',id('b'),'update',{status:'assigned',assignedTo:id('c'),staffNote:'Follow up',expectedVersion:3});
+ assert.equal(calls[0].options.method,'PATCH');assert.equal(calls[0].url,`https://site.example/api/service-requests/${id('b')}`);assert.equal(JSON.parse(calls[0].options.body).expectedVersion,3);
+ await client.action('services',id('b'),'update',{assignedTo:null,expectedVersion:4});assert.equal(JSON.parse(calls[1].options.body).assignedTo,null);
+ await client.editResource('contentServices',null,{title:'Airport transfer',price:30,durationDays:1,journeyStage:'arrival',country:null});assert.equal(calls[2].url,'https://site.example/api/admin/our-services');assert.equal(JSON.parse(calls[2].options.body).price,30);
+ await assert.rejects(client.action('services',id('b'),'update',{price:20}));assert.equal(calls.length,3);
+});

@@ -58,7 +58,7 @@ export const websiteResources = {
   universities: { label: 'إدارة الجامعات', path: '/universities', detail: '/universities', editFields: ['name', 'country', 'city', 'language', 'overview', 'logo', 'campusImages','studentCount','specialtyCount','ranking','tuitionRange','requiredDocuments','accreditations','articleTitle','articleHeadings','articleBodies','featured', 'isPartnerInstitution'] },
   programs: { label: 'إدارة البرامج', path: '/programs', detail: '/programs', editFields: ['title', 'university', 'degreeLevel', 'fieldOfStudy', 'language', 'duration', 'tuition', 'partnerTuition', 'summary','fieldsOfStudy','requirements','careerOpportunities', 'requiredDocumentTypes', 'featured'] },
   scholarshipCatalog: {label:'دليل المنح',path:'/scholarships/manage',createPath:'/scholarships',editPath:'/scholarships',deletePath:'/scholarships',editFields:['title','university','country','degree','funding','eligibility','deadline','active']},
-  contentServices: { label: 'محتوى الخدمات', path: '/admin/our-services', editFields: ['title', 'description', 'detailBody', 'price', 'durationDays', 'image'] },
+  contentServices: { label: 'إدارة الخدمات', path: '/admin/our-services', editFields: ['title','detailTitle','detailBody','price','priceDescription','durationDays','estimatedDuration','journeyStage','requirementsText','documentsText','image','detailImage','featured','sortOrder','country'] },
   faqs: { label: 'الأسئلة الشائعة', path: '/admin/faqs', editFields: ['question', 'answer'] },
   knowledge: { label: 'قاعدة المعرفة', path: '/admin/knowledge-base', editFields: ['title', 'body', 'category', 'summary', 'published'] },
 };
@@ -325,6 +325,8 @@ export function mountWebsiteRoutes(app, { allowModule, allowAction, client, read
     if (process.env.STUDY_BIRDS_ALLOW_WRITES !== 'true') throw fail('تعديل الموقع غير مفعّل.', 403);
     res.json(await remoteWrite(req, 'student-service', () => client.studentService(req.params.id, req.params.kind, req.body)));
   }));
+  app.get('/api/integrations/website/service-countries',sectionAccess('contentServices'),wrap(async(req,res)=>res.json(await client.request('/admin/countries'))));
+  app.get('/api/integrations/website/service-assignees',sectionAccess('services'),wrap(async(req,res)=>res.json(await client.request('/crm/service-assignees'))));
   app.get('/api/integrations/website/support-assignees',sectionAccess('support'),wrap(async(req,res)=>res.json(await client.request('/crm/support-assignees'))));
   app.get('/api/integrations/website/consultation-advisors',sectionAccess('consultations'),wrap(async(req,res)=>res.json(await client.request('/consultations/staff/advisors'))));
   app.get('/api/integrations/website/applications/:id/:section', sectionAccess('applications'), wrap(async (req, res) => res.json(await client.section(req.params.id, req.params.section))));

@@ -7,7 +7,7 @@ export function requiredAction(resource,operation) {
  if(resource==='financials')return operation==='delete'?'deleteInvoice':'createInvoice';
  if(['paymentProofs','payouts','walletEntries'].includes(resource))return 'recordPayment';
  if(['consultations','consultationSlots'].includes(resource))return 'manageConsultations';
- if(['services','housing','housingListings','arrival'].includes(resource))return 'manageServices';
+ if(['services','contentServices','housing','housingListings','arrival'].includes(resource))return 'manageServices';
  if(['support','communityPosts','communitySettings','communitySuspensions','studentOffers','studentOpportunities'].includes(resource))return 'manageSupport';
  if(resource==='rewardRules')return 'recordPayment';
  // Account roles and employee permissions remain reserved to user administrators.
