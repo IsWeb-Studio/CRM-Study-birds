@@ -29,6 +29,7 @@ import { api, formatDate } from '../api.js';
 import { useAuth } from '../auth.jsx';
 import { tr } from '../i18n.js';
 import { canOpenModule } from '../permissions.js';
+import {NativeUnreadPanel,ModuleReadCount,ReadCount} from './SharedReadState.jsx';
 import studyBirdsLogo from '../assets/logo.jpeg';
 
 const REFRESH_MS = 10_000;
@@ -397,7 +398,7 @@ export default function Layout() {
               className={({ isActive }) => (isActive ? 'side-link active' : 'side-link')}
             >
               <Icon size={19} />
-              <span>{label}</span>
+              <span>{label}</span>{to==='/countries'?<ReadCount resources={['countries']}/>:<ModuleReadCount module={routeToModuleKey(to)}/>}
             </NavLink>
           ))}
         </nav>
@@ -591,7 +592,7 @@ export default function Layout() {
             </div>
             <div className="date-chip">{today}</div>
           </div>
-          <Outlet />
+          <NativeUnreadPanel module={routeToModuleKey(location.pathname)}/><Outlet />
         </div>
 
         {popupNotification && (

@@ -1,3 +1,4 @@
+import {useSharedRead,ReadCount,RecordUnread,ReadRecord} from '../components/SharedReadState.jsx';
 import React, { useContext, useEffect, useMemo, useState } from 'react';
 import { UnifiedSectionContext } from '../components/UnifiedSectionContext.jsx';
 import { api, formatDate } from '../api.js';
@@ -39,6 +40,7 @@ const details = { name: 'الاسم', email: 'البريد', phone: 'الهات�
 
 export default function WebsitePage({ embedded = false, resources = null, dialogOnly = false, externalRecord = null, onDismiss, onSaved, localRows = [] }) {
   const { user } = useAuth();
+  const sharedRead=useSharedRead();
   const { records } = useContext(UnifiedSectionContext);
   const [assignees,setAssignees]=useState([]);
   const [searchParams] = useSearchParams();
@@ -73,7 +75,7 @@ export default function WebsitePage({ embedded = false, resources = null, dialog
     (records[resource] ? Promise.resolve(records[resource]) : api(`/api/integrations/website/requests/${resource}`)).then(data => { if (active) setResult(data); }).catch(e => { if (active) setError(e.message); }).finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, [resource, connection?.ready, records[resource]]);
-  useEffect(() => { if (dialogOnly) return; const id = searchParams.get('id'); const row = result?.rows?.find(row => row._id === id); if (row) start(row); }, [result, searchParams, dialogOnly]);
+  useEffect(() => { if (dialogOnly) return; const id = searchParams.get('id'); const row = result?.rows?.find(row => row._id === id); if (row && selected?._id!==row._id) start(row); }, [result, searchParams, dialogOnly]);
   useEffect(() => { if (dialogOnly && externalRecord && result) start(externalRecord); }, [dialogOnly, externalRecord?._id, result]);
   const rows = useMemo(() => mergeRecords(localRows, (result?.rows || []).map(row => ({ ...row, websiteSource:{ resource, id:row._id } })), resource).filter(row => [person(row), title(row), row.status, row._id, row.email, row.phone].join(' ').toLowerCase().includes(search.trim().toLowerCase())), [localRows, result, resource, search]);
   async function test() {
@@ -81,6 +83,21 @@ export default function WebsitePage({ embedded = false, resources = null, dialog
     try { const data = await api('/api/integrations/website/test', { method: 'POST' }); setNotice(`الاتصال ناجح: ${data.countries} دولة، ${data.universities} جامعة، ${data.programs} برنامج.`); }
     catch (e) { setError(e.message); } finally { setBusy(false); }
   }
+  useEffect(() => {
+    if(resource!=='support' || !connection?.ready || busy)return;
+    let active=true,pending=false;
+    const update=async()=>{
+      if(document.hidden || pending)return;
+      pending=true;
+      try{
+        const data=await api('/api/integrations/website/requests/support');
+        if(active)setResult(data);
+        if(selected?._id){const ticket=await api(`/api/integrations/website/requests/support/${selected._id}`);if(active)setSelected(current=>current?._id===ticket._id?{...current,...ticket}:current);}
+      }catch(error){if(active)setError(error.message);}finally{pending=false;}
+    };
+    const timer=setInterval(update,15000);window.addEventListener('focus',update);document.addEventListener('visibilitychange',update);
+    return()=>{active=false;clearInterval(timer);window.removeEventListener('focus',update);document.removeEventListener('visibilitychange',update);};
+  },[resource,connection?.ready,busy,selected?._id]);
   async function start(row, action = null) {
     let target = row;
     setSelected(row); setOperation(''); setForm({}); setError('');
@@ -144,9 +161,9 @@ export default function WebsitePage({ embedded = false, resources = null, dialog
   const allowedActions = Object.keys(result?.actions || {}).filter(key => actionLabels[key]);
   const recordDialog = (
     <Modal open={Boolean(selected)} onClose={() => { if (!busy) { setSelected(null); onDismiss?.(); } }} title="تفاصيل السجل" size="lg">
-      {selected && <><p>رقم السجل: {selected._id || '—'}</p><dl className="website-details">{Object.entries(details).filter(([key]) => selected[key] != null).map(([key, label]) => <div key={key}><dt>{label}</dt><dd>{key === 'status' || key === 'detailedStatus' ? statusLabels[selected[key]] || text(selected[key]) : text(selected[key])}</dd></div>)}</dl>
+      {selected && <><ReadRecord record={selected} resource={resource}/><p>رقم السجل: {selected._id || '—'}</p><dl className="website-details">{Object.entries(details).filter(([key]) => selected[key] != null).map(([key, label]) => <div key={key}><dt>{label}</dt><dd>{key === 'status' || key === 'detailedStatus' ? statusLabels[selected[key]] || text(selected[key]) : text(selected[key])}</dd></div>)}</dl>
       {resource==='communityPosts' && <CommunityComments postId={selected._id} comments={selected.comments || []} writable={connection?.writesEnabled && result?.capabilities?.edit} onSaved={()=>{start(selected);onSaved?.();}} />}
-      {resource==='support' && <section><p>الموظف المسؤول: {text(selected.assignedTo)}</p><h3>سجل الردود</h3>{(selected.replies || []).map((reply,index)=><div className="student-card-row" key={reply._id || index}><strong>{text(reply.user)} · {formatDate(reply.createdAt)}</strong><p>{reply.message}</p></div>)}{!selected.replies?.length && <p>لا توجد ردود حتى الآن.</p>}</section>}
+      {resource==='support' && <section><p>الموظف المسؤول: {text(selected.assignedTo)}</p><h3>سجل الردود</h3>{(selected.replies || []).filter((reply,index)=>!(index===0 && reply.fromRole!=='admin' && reply.message?.trim()===selected.message?.trim())).map((reply,index)=><div className="student-card-row" key={reply._id || index}><strong>{reply.displayName || text(reply.user)}{reply.source==='crm'?' · CRM':''} · {formatDate(reply.createdAt)}</strong><p>{reply.message}</p></div>)}{!selected.replies?.length && <p>لا توجد ردود حتى الآن.</p>}</section>}
       {error && <div role="alert" className="website-error">{error}</div>}
       {!embedded && !dialogOnly && canOpenModule(user, 'website') && <LinkWebsiteRecordButton resource={resource} record={selected} />}
       {selected.__crm && canOpenModule(user, 'catalogManagement') && <Button onClick={() => navigate('/catalog-management')}>تحرير في الدليل الدراسي</Button>}
@@ -173,11 +190,11 @@ export default function WebsitePage({ embedded = false, resources = null, dialog
       {connection?.ready && !connection.writesEnabled && <p>الربط في وضع القراءة. تعديل طلبات الموقع معطّل حاليًا.</p>}
     </Card>}
     {error && <div role="alert" className="website-error">{error}</div>}{notice && <div role="status" className="website-notice">{notice}</div>}
-    <Card>{canCreateSingleton && <Button onClick={()=>setSelected({_id:'singleton',__new:true})}>إضافة المحتوى</Button>}{catalogResource && canCreate && <Button onClick={()=>setSelected({})}>إضافة سجل جديد إلى الموقع</Button>}<div className="website-toolbar"><label className="field"><span>نوع الطلبات</span><select value={resource} disabled={loading || busy} onChange={e => { setResource(e.target.value); setSearch(''); }}>{availableResources.map(item => <option key={item.key} value={item.key}>{item.label}</option>)}</select></label><label className="field"><span>بحث في القائمة المعروضة</span><input type="search" placeholder="الاسم أو الخدمة أو رقم الطلب" value={search} onChange={e => setSearch(e.target.value)} /></label><Button variant="secondary" disabled={!connection?.ready || loading || busy} onClick={() => load()}>تحديث القائمة</Button></div>
+    <Card>{canCreateSingleton && <Button onClick={()=>setSelected({_id:'singleton',__new:true})}>إضافة المحتوى</Button>}{catalogResource && canCreate && <Button onClick={()=>setSelected({})}>إضافة سجل جديد إلى الموقع</Button>}<div className="website-toolbar"><label className="field"><span>نوع الطلبات</span><select value={resource} disabled={loading || busy} onChange={e => { setResource(e.target.value); setSearch(''); }}>{availableResources.map(item => <option key={item.key} value={item.key}>{item.label}{sharedRead.resources[item.key]?.unread?` (${sharedRead.resources[item.key].unread})`:""}</option>)}</select></label><label className="field"><span>بحث في القائمة المعروضة</span><input type="search" placeholder="الاسم أو الخدمة أو رقم الطلب" value={search} onChange={e => setSearch(e.target.value)} /></label><Button variant="secondary" disabled={!connection?.ready || loading || busy} onClick={() => load()}>تحديث القائمة</Button></div>
       {loading ? <Spinner /> : <><p>{rows.length} سجل معروض {result?.fetchedAt && `• آخر قراءة: ${formatDate(result.fetchedAt)}`}</p>
       {result?.stale && <p role="status" className="website-hint">تعذر تحديث القائمة؛ المعروض آخر بيانات الموقع المحفوظة. {(result.warnings || []).join('، ')}</p>}
       {result?.completeness === 'endpoint-limit' && <p className="website-hint">هذه قائمة السجلات التي أتاحتها واجهة الموقع؛ بعض الأقسام تضع حدًا لعدد السجلات.</p>}
-      <div className="website-table-wrap"><table className="catalog-table"><thead><tr><th>المصدر</th><th>{catalogResource?"اسم العنصر":"الاسم / مقدم الطلب"}</th><th>{catalogResource?"بيانات إضافية":"الخدمة / البرنامج"}</th><th>الحالة</th><th>التاريخ</th><th>التفاصيل</th></tr></thead><tbody>{rows.map((row, index) => <tr key={row._id || index}><td><Badge tone={row.__crm ? 'neutral' : 'blue'}>{row.__crm ? 'CRM' : 'مرتبط'}</Badge></td><td>{catalogResource ? title(row) : person(row)}</td><td>{catalogResource?[resource==='countries'?row.code:resource==='studyFields'?row.description:text(row.university || row.country),row.degreeLevel,row.language].filter(Boolean).join(' · ') || '—':title(row)}</td><td>{statusLabels[row.detailedStatus || row.status] || row.status || '—'}</td><td>{formatDate(row.createdAt)}</td><td><div className="table-actions"><Button disabled={busy} variant="secondary" onClick={() => start(row)}>{catalogResource && connection?.writesEnabled && result?.capabilities?.edit?"تعديل":resource==='services'?"إدارة الطلب":"عرض"}</Button>{resource==='support' && !row.__crm && connection?.writesEnabled && result?.capabilities?.edit && <>{result?.actions?.reply && <Button disabled={busy} onClick={()=>start(row,'reply')}>رد</Button>}{result?.actions?.assign && <Button disabled={busy} variant="secondary" onClick={()=>start(row,'assign')}>إسناد</Button>}</>}{catalogResource && !row.__crm && connection?.writesEnabled && result?.deletable && result?.capabilities?.delete && <Button variant="danger" disabled={busy} onClick={()=>deleteRecord(row)}>حذف</Button>}</div></td></tr>)}</tbody></table></div>{!rows.length && !error && <p>لا توجد سجلات لعرضها.</p>}</>}
+      <div className="website-table-wrap"><table className="catalog-table"><thead><tr><th>المصدر</th><th>{catalogResource?"اسم العنصر":"الاسم / مقدم الطلب"}</th><th>{catalogResource?"بيانات إضافية":"الخدمة / البرنامج"}</th><th>الحالة</th><th>التاريخ</th><th>التفاصيل</th></tr></thead><tbody>{rows.map((row, index) => <tr key={row._id || index}><td><Badge tone={row.__crm ? 'neutral' : 'blue'}>{row.__crm ? 'CRM' : 'مرتبط'}</Badge></td><td>{catalogResource ? title(row) : person(row)} <RecordUnread record={row} resource={resource}/></td><td>{catalogResource?[resource==='countries'?row.code:resource==='studyFields'?row.description:text(row.university || row.country),row.degreeLevel,row.language].filter(Boolean).join(' · ') || '—':title(row)}</td><td>{statusLabels[row.detailedStatus || row.status] || row.status || '—'}</td><td>{formatDate(row.createdAt)}</td><td><div className="table-actions"><Button disabled={busy} variant="secondary" onClick={() => start(row)}>{catalogResource && connection?.writesEnabled && result?.capabilities?.edit?"تعديل":resource==='services'?"إدارة الطلب":"عرض"}</Button>{resource==='support' && !row.__crm && connection?.writesEnabled && result?.capabilities?.edit && <>{result?.actions?.reply && <Button disabled={busy} onClick={()=>start(row,'reply')}>رد</Button>}{result?.actions?.assign && <Button disabled={busy} variant="secondary" onClick={()=>start(row,'assign')}>إسناد</Button>}</>}{catalogResource && !row.__crm && connection?.writesEnabled && result?.deletable && result?.capabilities?.delete && <Button variant="danger" disabled={busy} onClick={()=>deleteRecord(row)}>حذف</Button>}</div></td></tr>)}</tbody></table></div>{!rows.length && !error && <p>لا توجد سجلات لعرضها.</p>}</>}
     </Card>
     {!embedded && connection && canOpenModule(user, 'website') && <WebsiteWorkflowPanel connection={connection} resource={resource} onRefresh={() => load()} />}
     {!catalogResource && connection?.writesEnabled && result?.capabilities?.create && (result?.createFields || result?.editFields)?.length > 0 && !result?.singleton && <Button onClick={() => setSelected({})}>إضافة سجل جديد إلى الموقع</Button>}

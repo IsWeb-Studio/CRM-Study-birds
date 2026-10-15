@@ -1,3 +1,4 @@
+import {useSharedRead,ReadCount,ReadRecord,RecordUnread} from '../components/SharedReadState.jsx';
 import React, { useContext, useEffect, useMemo, useState } from 'react';
 import { UnifiedSectionContext, useUnifiedRecords } from '../components/UnifiedSectionContext.jsx';
 import { can } from '../permissions.js';
@@ -53,6 +54,7 @@ function contactMeta(contact) {
 
 export default function InboxPage() {
   const { user } = useAuth();
+  const sharedRead=useSharedRead();
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState(null);
   const [localAllConversations, setAllConversations] = useState([]);
@@ -72,7 +74,7 @@ export default function InboxPage() {
   const [channelFilter, setChannelFilter] = useState('');
   const [assignedUserFilter, setAssignedUserFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
-  const conversations = useMemo(() => mergedConversations.filter(row => (!channelFilter || row.channelType === channelFilter) && (!statusFilter || row.status === statusFilter) && (!assignedUserFilter || row.assignedUserId === assignedUserFilter)), [mergedConversations, channelFilter, statusFilter, assignedUserFilter]);
+  const conversations = useMemo(() => mergedConversations.map(row=>row.id.startsWith('website:messaging:') && sharedRead.resources.messaging?.contacts?{...row,unreadCount:sharedRead.resources.messaging.contacts[row.externalUserId] || 0}:row).filter(row => (!channelFilter || row.channelType === channelFilter) && (!statusFilter || row.status === statusFilter) && (!assignedUserFilter || row.assignedUserId === assignedUserFilter)), [mergedConversations, channelFilter, statusFilter, assignedUserFilter,sharedRead.resources.messaging]);
   const [activeView, setActiveView] = useState('all');
   const [selectedConversationIds, setSelectedConversationIds] = useState([]);
   const [bulkForm, setBulkForm] = useState({ assignedUserId: '', status: 'open', priority: 'medium', tags: '' });
@@ -131,6 +133,7 @@ export default function InboxPage() {
     try {
       if (conversationId.startsWith('website:mail:')) {
         const mail = allConversations.find(row => row.id === conversationId)?.websiteSource.record;
+        if(mail){const id=mail.id || mail.messageId;const states=await api('/api/read-state/crm:mail/states',{method:'POST',body:JSON.stringify({ids:[id]})});const snapshot=states[id];if(snapshot?.unread){await api(`/api/read-state/crm:mail/${id}/read`,{method:'POST',body:JSON.stringify({version:snapshot.version})});window.dispatchEvent(new Event('shared-read-changed'));}}
         setMessages(mail ? [{id:mail.id,text:mail.message,direction:'inbound',createdAt:mail.receivedAt || mail.createdAt,messageType:'email',status:'received'}] : []);
         return;
       }
@@ -138,6 +141,8 @@ export default function InboxPage() {
       const rows = await api(websiteId ? `/api/integrations/website/messaging/${websiteId}` : `/api/conversations/${conversationId}/messages`);
       const items = websiteId ? rows.map(row => ({ id:row._id, text:row.body, direction:String(row.sender?._id || row.sender) === websiteId ? 'inbound' : 'outbound', createdAt:row.createdAt, messageType:'text', status:row.readAt ? 'read' : 'sent' })) : rows;
       setMessages(items || []);
+      if(websiteId){const incoming=rows.filter(row=>String(row.sender?._id || row.sender)===websiteId);if(incoming.length){const states=await api('/api/read-state/messaging/states',{method:'POST',body:JSON.stringify({ids:incoming.map(row=>row._id)})});for(const snapshot of Object.values(states))if(snapshot.unread)await api(`/api/read-state/messaging/${snapshot.id}/read`,{method:'POST',body:JSON.stringify({version:snapshot.version})});window.dispatchEvent(new Event('shared-read-changed'));}}
+      else {const states=await api('/api/read-state/crm:conversations/states',{method:'POST',body:JSON.stringify({ids:[conversationId]})});const snapshot=states[conversationId];if(snapshot?.unread){await api(`/api/read-state/crm:conversations/${conversationId}/read`,{method:'POST',body:JSON.stringify({version:snapshot.version})});window.dispatchEvent(new Event('shared-read-changed'));}}
     } catch (error) {
       setToast({ type: 'error', message: error.message });
     }
@@ -662,7 +667,7 @@ export default function InboxPage() {
                   </span>
                 </div>
                 <div className="app-date">
-                  <span>{conversation.unreadCount || 0} غير مقروءة</span>
+                  <span>{conversation.unreadCount || 0} غير مقروءة</span>{!conversation.id.startsWith('website:') && <RecordUnread record={conversation} resource="crm:conversations"/>}{conversation.id.startsWith('website:mail:') && <RecordUnread resource="crm:mail" id={conversation.websiteSource.id}/>}
                   <small>{formatDate(conversation.lastMessageAt)}</small>
                 </div>
               </button>

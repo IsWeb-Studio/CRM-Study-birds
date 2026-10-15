@@ -1,4 +1,5 @@
 import React, { useContext, useState } from 'react';
+import {RecordUnread} from './SharedReadState.jsx';
 import WebsitePage from '../pages/WebsitePage.jsx';
 import { Button } from './UI.jsx';
 import { UnifiedSectionContext } from './UnifiedSectionContext.jsx';
@@ -7,7 +8,7 @@ export default function SourceRecordActions({ record, onSaved, label = 'إدار
   const { refresh } = useContext(UnifiedSectionContext);
   const source = record?.websiteSource;
   if (!source) return null;
-  return <><Button variant="secondary" type="button" onClick={() => setOpen(true)}>{label}</Button>
+  return <><Button variant="secondary" type="button" onClick={() => setOpen(true)}>{label} <RecordUnread record={record}/></Button>
     {open && <WebsitePage dialogOnly resources={[source.resource]} externalRecord={source.record || { _id:source.id }} onDismiss={() => setOpen(false)} onSaved={() => { setOpen(false); refresh(); onSaved?.(); }} />}
   </>;
 }

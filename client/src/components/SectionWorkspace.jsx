@@ -5,6 +5,7 @@ import { websiteSections } from '../websiteSections.js';
 import WebsitePage from '../pages/WebsitePage.jsx';
 import { Card, Button } from './UI.jsx';
 import { UnifiedSectionContext } from './UnifiedSectionContext.jsx';
+import {ReadCount,ModuleReadCount} from './SharedReadState.jsx';
 import SourceRecordActions from './SourceRecordActions.jsx';
 import { useAuth } from '../auth.jsx';
 import { can } from '../permissions.js';
@@ -57,8 +58,8 @@ export default function SectionWorkspace({ module, children }) {
   const localRows = [];
   return <UnifiedSectionContext.Provider value={{ records, refresh, ready:connection?.ready, writesEnabled:connection?.writesEnabled }}><div className="section-workspace">
     <Card><div className="panel-toolbar"><div className="table-actions">
-      {children && <Button variant={tab === 'main' ? 'primary' : 'ghost'} onClick={() => setTab('main')}>{nativeLabels[module] || 'السجلات'}</Button>}
-      {resources.map(item => <Button key={item.key} variant={tab === item.key ? 'primary' : 'ghost'} onClick={() => setTab(item.key)}>{item.label.replace('الموقع','').trim()}</Button>)}
+      {children && <Button variant={tab === 'main' ? 'primary' : 'ghost'} onClick={() => setTab('main')}>{nativeLabels[module] || 'السجلات'} <ModuleReadCount module={module}/></Button>}
+      {resources.map(item => <Button key={item.key} variant={tab === item.key ? 'primary' : 'ghost'} onClick={() => setTab(item.key)}>{item.label.replace('الموقع','').trim()} <ReadCount resources={[item.key]}/></Button>)}
     </div><div className="table-actions">{['programs','universities','catalogManagement'].includes(module) && connection?.writesEnabled && can(user, 'manageWebsite') && <SourceRecordActions label="إضافة برنامج" record={{websiteSource:{resource:'programs',record:{}}}} />}{['universities','catalogManagement'].includes(module) && connection?.writesEnabled && can(user,'manageWebsite') && <SourceRecordActions label="إضافة جامعة" record={{websiteSource:{resource:'universities',record:{}}}} />}{['universities','catalogManagement'].includes(module) && connection?.writesEnabled && can(user,'manageWebsite') && <SourceRecordActions label="إضافة دولة" record={{websiteSource:{resource:'countries',record:{}}}} />}{module === 'scholarships' && connection?.writesEnabled && can(user,'manageWebsite') && <SourceRecordActions label="إضافة منحة" record={{websiteSource:{resource:'scholarshipCatalog',record:{}}}} />}<Button variant="secondary" disabled={loading} onClick={refresh}>تحديث</Button></div></div></Card>
     {errors.map(error => <p key={error} role="alert" className="website-error">{error}</p>)}
     {connection && !connection.ready && <p role="status">ربط الموقع غير مفعّل؛ السجلات الحالية متاحة.</p>}

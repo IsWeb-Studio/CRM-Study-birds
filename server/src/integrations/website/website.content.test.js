@@ -107,3 +107,19 @@ test('country creation and university colors and program popularity reach the we
  assert.equal(calls[2].body.popularity,0);
  assert.deepEqual(calls[2].body.requiredDocumentTypes,['passport']);
 });
+
+
+test('CRM reply identity is signed by the gateway, not accepted from browser payloads',async()=>{
+ const previous=process.env.STUDY_BIRDS_SSO_SECRET;process.env.STUDY_BIRDS_SSO_SECRET='fixture-shared-secret';
+ try{
+  const {createHmac}=await import('node:crypto');let sent;
+  const client=createWebsiteClient({config,fetchImpl:async(_url,options)=>{sent=JSON.parse(options.body);return response({});}});
+  const actor={sub:'crm-employee',name:'Advisor',companyId:'one'};
+  await client.action('support',id,'reply',{message:' Reply ',status:'answered'},actor);
+  assert.equal(sent.crmActor.name,'Advisor');
+  const {signature,...identity}=sent.crmActor;
+  const expected=createHmac('sha256','fixture-shared-secret').update(JSON.stringify({ticketId:id,message:'Reply',status:'answered',...identity})).digest('hex');
+  assert.equal(signature,expected);
+  await assert.rejects(client.action('support',id,'reply',{message:'Reply',crmActor:{name:'Forged'}},actor));
+ }finally{if(previous===undefined)delete process.env.STUDY_BIRDS_SSO_SECRET;else process.env.STUDY_BIRDS_SSO_SECRET=previous;}
+});

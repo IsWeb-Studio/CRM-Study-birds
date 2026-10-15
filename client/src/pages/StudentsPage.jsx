@@ -1,3 +1,4 @@
+import {ReadRecord,RecordUnread} from '../components/SharedReadState.jsx';
 import {WebsiteFields} from './WebsiteOperations.jsx';
 import StudentWorkspace from '../components/StudentWorkspace.jsx';
 import React, { useContext, useEffect, useMemo, useState } from 'react';
@@ -147,7 +148,7 @@ export default function StudentsPage() {
                   <div className="avatar soft">{initials(student.name)}</div>
                   <div className="student-main">
                     <div>
-                      <strong>{student.name}</strong>
+                      <strong>{student.name}</strong><RecordUnread record={student} resource="crm:students"/>
                       <Badge tone={latestApplication ? 'blue' : 'neutral'}>{latestApplication ? tr(latestApplication.status) : 'بدون طلب'}</Badge>
                     </div>
                     <p>{student.nationality || '—'}</p>
@@ -163,7 +164,7 @@ export default function StudentsPage() {
 
         <Card className="student-detail">
           {selected ? (
-            <>
+            <><ReadRecord record={selected} resource="crm:students"/>
               <div className="detail-hero">
                 <div className="hero-icon"><UserSquare2 /></div>
                 <div>

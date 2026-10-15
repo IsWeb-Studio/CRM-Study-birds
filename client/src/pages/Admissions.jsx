@@ -1,3 +1,4 @@
+import {ReadRecord,RecordUnread} from '../components/SharedReadState.jsx';
 import React, { useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { AlertTriangle, CheckCircle2, ChevronDown, CircleDot, Clock3, Eye, EyeOff, File, FilePlus2, FileUp, GraduationCap, History, KeyRound, Link as LinkIcon, Save, Search, ShieldCheck, Trash2, UploadCloud, WalletCards } from 'lucide-react';
@@ -548,7 +549,7 @@ export default function Admissions() {
 
         <Card className="application-detail">
           {selected && detailForm ? (
-            <>
+            <><ReadRecord record={selected} resource="crm:applications"/>
               <div className="detail-hero">
                 <div className="hero-icon"><GraduationCap /></div>
                 <div>

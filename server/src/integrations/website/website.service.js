@@ -1,3 +1,5 @@
+import {canReadLocal,localStates,localSummary,markLocalRead,localDetail,localUnread} from './localReadState.js';
+import { createHmac } from 'node:crypto';
 import {conversationKey,updateConversationWorkspace} from './conversationWorkspace.js';
 import {loadCatalogSnapshot} from './catalogSnapshot.js';
 import { materializeWebsiteRows, nativeResources } from './nativeRecords.js';
@@ -89,7 +91,7 @@ export function createWebsiteClient({ config = () => websiteConfig(), fetchImpl 
   let generation=0;
   async function request(path, { method = 'GET', body } = {}) {
     const c = config();
-    if(method!=='GET'){generation++;listCache.clear();cachedCatalog=null;cacheUntil=0;}
+    if(method!=='GET' && !path.startsWith('/shared-read')){generation++;listCache.clear();cachedCatalog=null;cacheUntil=0;}
     if (!c.enabled || !c.ready) throw fail('ربط الموقع غير مفعّل أو رمز الاتصال غير مضبوط.', 503);
     if (!/^\/[a-z][a-z0-9/?=&._-]*$/i.test(path)) throw fail('مسار غير مسموح.');
     const multipart=body instanceof FormData;
@@ -103,7 +105,7 @@ export function createWebsiteClient({ config = () => websiteConfig(), fetchImpl 
     } catch { throw fail('تعذر الاتصال بالموقع. حاول مرة أخرى؛ لم تُغيّر بيانات CRM.', 502); }
     const data = await response.json().catch(() => null);
     if (!response.ok) throw fail(response.status === 401 ? 'انتهت صلاحية رمز الموقع؛ حدّثه على خادم CRM.' : response.status === 403 ? 'حساب اتصال الموقع لا يملك صلاحية هذا القسم.' : String(data?.message || 'فشل تنفيذ الإجراء على الموقع.'), response.status === 401 ? 502 : response.status >= 400 && response.status < 500 ? response.status : 502);
-    if(method!=='GET'){generation++;listCache.clear();cachedCatalog=null;cacheUntil=0;}
+    if(method!=='GET' && !path.startsWith('/shared-read')){generation++;listCache.clear();cachedCatalog=null;cacheUntil=0;}
     if (data === null) throw fail('استجابة الموقع ليست JSON صالحًا.', 502);
     return data;
   }
@@ -189,7 +191,7 @@ export function createWebsiteClient({ config = () => websiteConfig(), fetchImpl 
     if (!def?.detail) throw fail('هذا القسم لا يدعم قراءة التفاصيل.', 404);
     return request(`${def.detail}/${id}`);
   }
-  async function action(key, id, actionName, payload) {
+  async function action(key, id, actionName, payload, actor) {
     assertId(id);
     const def = websiteResources[key];
     const operation = def?.actions?.[actionName];
@@ -197,7 +199,13 @@ export function createWebsiteClient({ config = () => websiteConfig(), fetchImpl 
     if (!payload || Array.isArray(payload) || typeof payload !== 'object') throw fail('بيانات الإجراء غير صالحة.');
     const keys = Object.keys(payload);
     if (!keys.length || keys.some(key => !operation.fields.includes(key))) throw fail('الإجراء يحتوي حقولًا غير مسموحة.');
-    return request(`${operation.path || def.path}/${id}${operation.suffix || ''}`, { method: operation.method, body: payload });
+    let body=payload;
+    if(key==='support' && actionName==='reply' && actor?.sub && actor?.name && process.env.STUDY_BIRDS_SSO_SECRET){
+      const identity={id:String(actor.sub),name:actor.name,companyId:actor.companyId,issuedAt:Date.now()};
+      const signed=JSON.stringify({ticketId:String(id),message:String(payload.message || '').trim(),status:payload.status || 'answered',...identity});
+      body={...payload,crmActor:{...identity,signature:createHmac('sha256',process.env.STUDY_BIRDS_SSO_SECRET).update(signed).digest('hex')}};
+    }
+    return request(`${operation.path || def.path}/${id}${operation.suffix || ''}`, { method: operation.method, body });
   }
   async function studentService(id, kind, payload) {
     assertId(id);
@@ -325,6 +333,32 @@ export function mountWebsiteRoutes(app, { allowModule, allowAction, client, read
       throw error;
     }
   }
+  const readableAccess=(req,res,next)=>{if(canReadLocal(req.user,req.params.resource) || allowed(req.user,req.params.resource) || req.params.resource==='messaging' && allowed(req.user,'support'))return next();return res.status(403).json({message:'غير مصرح بقراءة هذا القسم'});};
+  app.get('/api/read-state',wrap(async(req,res)=>{
+    res.set('Cache-Control','no-store');
+    let source;try{source=await client.request('/shared-read');}catch(error){source={resources:{},errors:{website:error.message}};}
+    const local=localSummary(await readDb(),req.user);
+    res.json({...source,resources:{...Object.fromEntries(Object.entries(source.resources || {}).filter(([key])=>allowed(req.user,key) || key==='messaging' && allowed(req.user,'support'))),...local},errors:Object.fromEntries(Object.entries(source.errors || {}).filter(([key])=>key==='website' || allowed(req.user,key)))});
+  }));
+  app.get('/api/read-state/:resource/unread',readableAccess,wrap(async(req,res)=>{res.set('Cache-Control','no-store');res.json(req.params.resource.startsWith('crm:')?localUnread(await readDb(),req.user,req.params.resource):await client.request(`/shared-read/${req.params.resource}/unread`));}));
+  app.get('/api/read-state/:resource/:id/detail',readableAccess,wrap(async(req,res)=>{res.set('Cache-Control','no-store');res.json(req.params.resource.startsWith('crm:')?localDetail(await readDb(),req.user,req.params.resource,req.params.id):await client.request(`/shared-read/${req.params.resource}/${req.params.id}/detail`));}));
+  app.post('/api/read-state/:resource/states',readableAccess,wrap(async(req,res)=>{
+    if(Object.keys(req.body || {}).some(key=>key!=='ids'))throw fail('حقول القراءة غير صالحة');
+    if(req.params.resource.startsWith('crm:'))return res.json(localStates(await readDb(),req.user,req.params.resource,req.body.ids));
+    res.set('Cache-Control','no-store');res.json(await client.request(`/shared-read/${req.params.resource}/states`,{method:'POST',body:{ids:req.body.ids}}));
+  }));
+  app.post('/api/read-state/:resource/:id/read',readableAccess,wrap(async(req,res)=>{
+    if(req.params.resource.startsWith('crm:'))return res.json(await mutateDb(db=>markLocalRead(db,req.user,req.params.resource,req.params.id,req.body.version)));
+    assertId(req.params.id);if(Object.keys(req.body || {}).some(key=>key!=='version'))throw fail('حقول القراءة غير صالحة');
+    res.set('Cache-Control','no-store');res.json(await client.request(`/shared-read/${req.params.resource}/${req.params.id}/read`,{method:'POST',body:{version:req.body.version}}));
+  }));
+  async function attachReadState(resource,rows){
+    if(resource==='employeeStats')return rows;
+    const ids=[...new Set(rows.map(row=>row.suspensionId || row._id).filter(id=>/^[a-f0-9]{24}$/i.test(id || '')))];
+    const states={};
+    for(let offset=0;offset<ids.length;offset+=100)Object.assign(states,await client.request(`/shared-read/${resource}/states`,{method:'POST',body:{ids:ids.slice(offset,offset+100)}}));
+    return rows.map(row=>({...row,__read:states[row.suspensionId || row._id]}));
+  }
   app.get('/api/integrations/website/status', metadataAccess, wrap(async (req, res) => {
     const c = websiteConfig();
     res.json({ enabled: c.enabled, ready: c.ready, apiUrl: c.baseUrl || '', resources: Object.entries(websiteResources).filter(([key]) => allowed(req.user, key)).map(([key, value]) => ({ key, label: value.label,canWrite:canWriteResource(req.user,key,'edit') })), writesEnabled: process.env.STUDY_BIRDS_ALLOW_WRITES === 'true', limitations: ['contact-email', 'messaging-participants', 'endpoint-limits'] });
@@ -348,7 +382,9 @@ export function mountWebsiteRoutes(app, { allowModule, allowAction, client, read
   app.get('/api/integrations/website/applications/:id/:section', sectionAccess('applications'), wrap(async (req, res) => res.json(await client.section(req.params.id, req.params.section))));
   app.get('/api/integrations/website/messaging/contacts',sectionAccess('support'),wrap(async(req,res)=>{
     const contacts=await client.request('/mobile-workspace/contacts'),db=await readDb();
-    res.json(contacts.map(row=>({...row,crmMetadata:db.websiteConversationMetadata?.[conversationKey(req.user.companyId,row._id)] || {}})));
+    let unread={};try{unread=(await client.request('/shared-read?resources=messaging')).resources.messaging?.contacts || {};}catch{}
+    const visible=new Set(contacts.map(row=>row._id));for(const [id,count] of Object.entries(unread))if(count>0 && !visible.has(id))contacts.push({_id:id,name:'محادثة غير مقروءة'});
+    res.json(contacts.map(row=>({...row,unreadCount:unread[row._id] || 0,crmMetadata:db.websiteConversationMetadata?.[conversationKey(req.user.companyId,row._id)] || {}})));
   }));
   app.post('/api/integrations/website/messaging/:id/manage',sectionAccess('support'),writeAccess,wrap(async(req,res)=>{
     assertId(req.params.id);
@@ -395,6 +431,7 @@ export function mountWebsiteRoutes(app, { allowModule, allowAction, client, read
       related.forEach((result,index) => {if(result.status === 'fulfilled') materializeWebsiteRows(db,req.user.companyId,relatedKeys[index],result.value.rows,req.user.sub);});
     });
     }
+    try{data.rows=await attachReadState(req.params.resource,data.rows);}catch(error){data.readStateUnavailable=true;}
     data.relatedErrors = related.flatMap((result,index) => result.status === 'rejected' ? [`${websiteResources[relatedKeys[index]].label}: ${result.reason.message}`] : []);
     data.capabilities={edit:canWriteResource(req.user,req.params.resource,'edit'),create:canWriteResource(req.user,req.params.resource,'create'),delete:canWriteResource(req.user,req.params.resource,'delete'),upload:canWriteResource(req.user,req.params.resource,'upload')};
     data.actions=Object.fromEntries(Object.entries(data.actions || {}).filter(([key])=>canWriteResource(req.user,req.params.resource,key)));
@@ -408,10 +445,10 @@ export function mountWebsiteRoutes(app, { allowModule, allowAction, client, read
     assertId(req.params.id);assertId(req.params.documentId);res.set('Cache-Control','no-store');res.json(await client.request(`/crm/service-requests/${req.params.id}/documents/${req.params.documentId}/access`,{method:'POST'}));
   }));
   app.post('/api/integrations/website/content/:resource/:id/delete',sectionAccess(req=>req.params.resource),writeAccess,wrap(async(req,res)=>{const result=await remoteWrite(req,'content-delete',()=>client.deleteResource(req.params.resource,req.params.id));if(req.params.resource==='applications')await mutateDb(db=>{db.websiteDeletedRecords ||= [];const rows=(db.applications || []).filter(row=>row.companyId===req.user.companyId && row.websiteSource?.id===req.params.id);for(const row of rows)db.websiteDeletedRecords.push({...structuredClone(row),deletedAt:new Date().toISOString(),deletedBy:req.user.sub});db.applications=(db.applications || []).filter(row=>!rows.includes(row));});res.json(result);}));
-  app.get('/api/integrations/website/requests/:resource/:id', sectionAccess(req => req.params.resource), wrap(async (req, res) => res.json(await client.detail(req.params.resource, req.params.id))));
+  app.get('/api/integrations/website/requests/:resource/:id', sectionAccess(req => req.params.resource), wrap(async (req, res) => {const row=await client.detail(req.params.resource, req.params.id);try{const [annotated]=await attachReadState(req.params.resource,[row]);res.json(annotated);}catch{res.json(row);}}));
   app.post('/api/integrations/website/requests/:resource/:id/:action', sectionAccess(req => req.params.resource), writeAccess, wrap(async (req, res) => {
     if (process.env.STUDY_BIRDS_ALLOW_WRITES !== 'true') throw fail('تعديل بيانات الموقع غير مفعّل على خادم CRM.', 403);
-    res.json(await remoteWrite(req, req.params.action, () => client.action(req.params.resource, req.params.id, req.params.action, req.body)));
+    res.json(await remoteWrite(req, req.params.action, () => client.action(req.params.resource, req.params.id, req.params.action, req.body, req.user)));
   }));
   app.get('/api/integrations/website/section-mail', sectionAccess('support'), wrap(async (req, res) => res.json((await readDb()).websiteContactMail?.filter(row => row.companyId === req.user.companyId).slice(-100).reverse() || [])));
   app.get('/api/integrations/website/log', access, wrap(async (req, res) => res.json((await readDb()).websiteIntegrationLog?.filter(row => row.companyId === req.user.companyId).slice(0, 100) || [])));

@@ -1,3 +1,4 @@
+import {ReadRecord,RecordUnread} from '../components/SharedReadState.jsx';
 import FinancialReconciliation from '../components/FinancialReconciliation.jsx';
 import InvoiceWorkspace from '../components/InvoiceWorkspace.jsx';
 import React, { useContext, useEffect, useMemo, useState } from 'react';
@@ -640,7 +641,7 @@ export default function Finance() {
               {shown.map(invoice => (
                 <tr key={invoice.id}>
                   <td>
-                    <strong>{invoice.number}</strong>
+                    <strong>{invoice.number}</strong><RecordUnread record={invoice} resource="crm:invoices"/>
                     <small>{formatDate(invoice.createdAt)}</small>
                   </td>
                   <td>
@@ -837,6 +838,7 @@ export default function Finance() {
         </form>
       </Modal>
 
+      {selected && (historyOpen || paymentOpen) && <ReadRecord record={selected} resource="crm:invoices"/>}
       <Modal open={historyOpen} onClose={() => setHistoryOpen(false)} title={`سجل السندات · ${selected?.number || ''}`} subtitle={selected ? `المحصّل ${formatMoney(selected.paid, selected.currency)} من أصل ${formatMoney(selected.total, selected.currency)}` : ''} size="lg">
         <div className="payment-history">
           {selected?.websiteSource?.id && <FinancialReconciliation invoice={selected} canImport={canRecordPayment} onSaved={load}/>}

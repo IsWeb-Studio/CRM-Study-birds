@@ -2,6 +2,7 @@ import React from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { useAuth } from './auth.jsx';
 import Layout from './components/Layout.jsx';
+import {SharedReadProvider} from './components/SharedReadState.jsx';
 const Login = React.lazy(() => import('./pages/Login.jsx'));
 import WebsitePage from './pages/WebsitePage.jsx';
 import SectionWorkspace from './components/SectionWorkspace.jsx';
@@ -58,7 +59,7 @@ function AppRoutes() {
   return (
     <Routes>
       <Route path="/login" element={<Navigate to="/" replace />} />
-      <Route element={<Layout />}>
+      <Route element={<SharedReadProvider><Layout /></SharedReadProvider>}>
         <Route index element={homeElement} />
         <Route path="consultancy" element={<Guard module="consultancy"><SectionWorkspace module="consultancy"><Consultancy /></SectionWorkspace></Guard>} />
         <Route path="students" element={<Guard module="students"><SectionWorkspace module="students"><StudentsPage /></SectionWorkspace></Guard>} />
