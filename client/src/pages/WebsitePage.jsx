@@ -123,7 +123,7 @@ export default function WebsitePage({ embedded = false, resources = null, dialog
   async function deleteRecord(row=selected) {
     if (!window.confirm('حذف السجل الأصلي من الموقع؟ لا يمكن التراجع عن هذا الإجراء.')) return;
     setBusy(true);setError('');
-    try {await api(`/api/integrations/website/content/${resource}/${row.sourceId || row._id}/delete`,{method:'POST',body:'{}'});setSelected(null);onSaved?.();if (!dialogOnly) await load();}
+    try {await api(`/api/integrations/website/content/${resource}/${row.sourceId || row._id}/delete`,{method:'POST',body:JSON.stringify({expectedVersion:row.__v ?? 0})});setSelected(null);onSaved?.();if (!dialogOnly) await load();}
     catch(e) {setError(e.message);} finally {setBusy(false);}
   }
   async function choose(action, record = selected) {

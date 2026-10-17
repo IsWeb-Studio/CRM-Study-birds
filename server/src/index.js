@@ -1,3 +1,6 @@
+import {createMetaWebhookRuntime} from './integrations/meta/metaWebhookRuntime.js';
+import {processMetaWebhookRecord} from './integrations/meta/metaWebhookProcessor.js';
+import {installReadiness} from './startupReadiness.js';
 import {mountTwoWayReadiness} from './integrations/website/twoWay/readiness.js';
 import {loadCatalogSnapshot} from './integrations/website/catalogSnapshot.js';
 import {mountFinancialReconciliation} from './integrations/website/financialReconciliation.js';
@@ -85,6 +88,10 @@ fs.mkdirSync(uploadsDir, { recursive: true });
 app.use(cors({ origin: process.env.CLIENT_ORIGIN || true, credentials: true }));
 app.use(express.json({ limit: '2mb' }));
 app.use(morgan('dev'));
+const readiness=installReadiness(app,{buildCommit:process.env.RENDER_GIT_COMMIT || process.env.VERCEL_GIT_COMMIT_SHA || null});
+// Bind before slow database and catalogue initialization. Work returns 503 until ready.
+if(!isVercelRuntime)app.listen(port,'0.0.0.0',()=>console.log(`Study Birds CRM API listening on port ${port}; initializing`));
+
 app.use('/uploads', express.static(uploadsDir));
 app.get('/api/files/:fileId', async (req, res, next) => {
   try {
@@ -2695,6 +2702,8 @@ function updateMessageStatus(db, companyId, normalizedStatus) {
   );
   if (!message) return null;
 
+  const progress={sent:1,delivered:2,read:3};
+  if((progress[message.status] || 0) > (progress[normalizedStatus.status] || 0) && message.status!=='failed')return message;
   message.providerStatus = normalizedStatus.status;
   if (normalizedStatus.status === 'delivered') {
     message.status = 'delivered';
@@ -3346,7 +3355,7 @@ if (process.env.STUDY_BIRDS_ENABLED === 'true') {
   }
 }
 
-app.get('/api/health', (_req, res) => res.json({ status: 'ok', time: now(), websiteIntegration: 15, buildCommit: process.env.RENDER_GIT_COMMIT || process.env.VERCEL_GIT_COMMIT_SHA || null }));
+
 
 app.post('/api/auth/login', async (req, res) => {
   const { email, password } = req.body || {};
@@ -3388,144 +3397,11 @@ app.get('/api/integrations/meta/webhook', (req, res) => {
   return res.status(403).json({ message: 'Webhook verification failed' });
 });
 
-app.post('/api/integrations/meta/webhook', async (req, res) => {
-  const eventPayload = req.body || {};
-  const eventHash = hashPayload(eventPayload);
-  logMetaWebhook('info', 'event received', {
-    object: eventPayload.object || 'meta',
-    entryCount: Array.isArray(eventPayload.entry) ? eventPayload.entry.length : 0,
-    eventHash
-  });
-
-  const record = await mutateDb(db => {
-    initMetaCollections(db);
-    const existing = db.webhookEvents.find(item => item.provider === 'meta' && item.eventId === eventHash);
-    if (existing) {
-      logMetaWebhook('info', 'duplicate webhook event ignored', {
-        eventHash,
-        recordId: existing.id
-      });
-      return existing;
-    }
-
-    const next = {
-      id: randomUUID(),
-      companyId: '',
-      provider: 'meta',
-      eventId: eventHash,
-      objectType: eventPayload.object || 'meta',
-      payload: eventPayload,
-      processingStatus: 'pending',
-      retryCount: 0,
-      receivedAt: now(),
-      processedAt: '',
-      error: ''
-    };
-    db.webhookEvents.unshift(next);
-    return next;
-  });
-
-  res.status(200).json({ received: true });
-
-  queueMicrotask(() => {
-    mutateDb(db => {
-      initMetaCollections(db);
-      const stored = db.webhookEvents.find(item => item.id === record.id);
-      if (!stored || stored.processingStatus === 'processed') return;
-
-      try {
-        const entries = stored.payload?.entry || [];
-        for (const entry of entries) {
-          const entryId = entry.id || '';
-          logMetaWebhook('info', 'processing entry', {
-            recordId: stored.id,
-            entryId,
-            hasMessagingArray: Array.isArray(entry.messaging),
-            changesCount: Array.isArray(entry.changes) ? entry.changes.length : 0
-          });
-
-          if (Array.isArray(entry.messaging)) {
-            const possibleChannels = db.connectedChannels.filter(item => item.pageId === entryId || item.instagramAccountId === entryId);
-            for (const event of entry.messaging) {
-              const channel = possibleChannels.find(item => item.channelType === 'facebook')
-                || possibleChannels.find(item => item.channelType === 'instagram');
-              if (!channel) {
-                logMetaWebhook('info', 'no connected messenger/instagram channel matched entry', {
-                  entryId,
-                  possibleChannels: possibleChannels.length
-                });
-                continue;
-              }
-              stored.companyId = channel.companyId;
-
-              const normalizedInbound = normalizeMessengerInboundEvent({
-                companyId: channel.companyId,
-                channel,
-                entry,
-                event
-              });
-              if (normalizedInbound) {
-                storeInboundMessage(db, channel.companyId, channel, normalizedInbound);
-              }
-
-              const statusEvents = normalizeMetaStatusEvents({ channel, value: null, event });
-              statusEvents.forEach(statusItem => updateMessageStatus(db, channel.companyId, statusItem));
-            }
-          }
-
-          const changes = entry.changes || [];
-          for (const change of changes) {
-            if (change.field !== 'messages') continue;
-            const value = change.value || {};
-            const phoneNumberId = value.metadata?.phone_number_id || '';
-            const channel = db.connectedChannels.find(item => item.phoneNumberId === phoneNumberId && item.companyId);
-            if (!channel) {
-              logMetaWebhook('info', 'no connected whatsapp channel matched phone number', {
-                phoneNumberId,
-                changeField: change.field
-              });
-              continue;
-            }
-            stored.companyId = channel.companyId;
-
-            const normalized = normalizeInboundMetaMessage({
-              companyId: channel.companyId,
-              channel,
-              event: entry,
-              value,
-              contact: value.contacts?.[0] || {}
-            });
-
-            if (normalized) {
-              storeInboundMessage(db, channel.companyId, channel, normalized);
-            }
-
-            const statusEvents = normalizeMetaStatusEvents({ channel, value, event: null });
-            statusEvents.forEach(statusItem => updateMessageStatus(db, channel.companyId, statusItem));
-          }
-        }
-
-        stored.processingStatus = 'processed';
-        stored.processedAt = now();
-        stored.error = '';
-        logMetaWebhook('info', 'event processed', {
-          recordId: stored.id,
-          companyId: stored.companyId || '',
-          processingStatus: stored.processingStatus
-        });
-      } catch (error) {
-        stored.processingStatus = 'failed';
-        stored.retryCount = Number(stored.retryCount || 0) + 1;
-        stored.error = error.message;
-        logMetaWebhook('error', 'event processing failed', {
-          recordId: stored.id,
-          error: error.message,
-          retryCount: stored.retryCount
-        });
-      }
-    }).catch(() => {});
-  });
+const metaWebhookRuntime=createMetaWebhookRuntime({
+ getCollection:async()=>(await getMongoDbHandle()).collection('meta_webhook_inbox'),readDb,mutateDb,initCollections:initMetaCollections,log:logMetaWebhook,
+ processRecord:(db,stored)=>processMetaWebhookRecord(db,stored,{storeInboundMessage,updateMessageStatus,logMetaWebhook})
 });
+app.post('/api/integrations/meta/webhook',metaWebhookRuntime.handler);
 
 app.get('/api/integrations/meta/oauth/callback', async (req, res) => {
   const { code, state } = req.query;
@@ -6184,11 +6060,12 @@ if (fs.existsSync(clientDist)) {
   });
 }
 
+readiness.markReady();
 if (!isVercelRuntime) {
   // Warm the shared state while the service starts, before the first login request arrives.
   startWebsitePolling(websiteWorkflow);
   warmDbCache().catch(error => console.error('Database cache warm-up failed:', error.message));
-  app.listen(port, () => console.log(`Study Birds CRM API running on http://localhost:${port}`));
+  metaWebhookRuntime.start().catch(error=>logMetaWebhook('error','inbox recovery unavailable',{message:error.message}));
 }
 
 export default app;

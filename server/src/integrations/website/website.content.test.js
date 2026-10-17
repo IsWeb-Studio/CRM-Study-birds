@@ -8,7 +8,7 @@ test('editing a university preserves articles, gallery, tuition and student coun
   let payload;
   const original = { _id: id, name: 'University', country: { _id: 'b'.repeat(24), name: 'Turkey' }, articleTitle: 'Keep article', articleHeadings: ['Keep heading'], articleBodies: ['Keep body'], campusImages: ['https://files.example/image.png'], tuitionRange: { min: 1000, max: 5000 }, studentCount: 2000, specialtyCount: 20 };
   const client = createWebsiteClient({ config, fetchImpl: async (_url, options) => { if (options.method === 'PUT') { payload = JSON.parse(options.body); return response(payload); } return response(original); } });
-  await client.editResource('universities', id, { city: 'New city' });
+  await client.editResource('universities', id, { city: 'New city', expectedVersion:0 });
   assert.equal(payload.city, 'New city');
   assert.equal(payload.articleTitle, original.articleTitle);
   assert.deepEqual(payload.articleBodies, original.articleBodies);
@@ -84,7 +84,7 @@ test('country edits forward complete visa data and preserve untouched source req
   let payload;
   const original = {_id:id,name:'Turkey',code:'TR',visaRequirements:[{docKey:'passport',label:'Passport'}],languageRequirements:['IELTS 6.5'],visaNotesList:['Keep note'],journeyStageRequirements:[{stage:'visa',documents:['passport']}],articleBodies:['Keep body'],visaFeeUsd:50};
   const client=createWebsiteClient({config,fetchImpl:async(_url,options)=>{if(options.method==='PUT'){payload=JSON.parse(options.body);return response(payload);}return response([original]);}});
-  await client.editResource('countries',id,{processingDays:10,featured:true,articleTitleColor:'#123456'});
+  await client.editResource('countries',id,{processingDays:10,featured:true,articleTitleColor:'#123456',expectedVersion:0});
   assert.equal(payload.processingDays,10);
   assert.equal(payload.articleTitleColor,'#123456');
   assert.deepEqual(payload.visaRequirements,original.visaRequirements);
@@ -122,4 +122,19 @@ test('CRM reply identity is signed by the gateway, not accepted from browser pay
   assert.equal(signature,expected);
   await assert.rejects(client.action('support',id,'reply',{message:'Reply',crmActor:{name:'Forged'}},actor));
  }finally{if(previous===undefined)delete process.env.STUDY_BIRDS_SSO_SECRET;else process.env.STUDY_BIRDS_SSO_SECRET=previous;}
+});
+
+
+test('catalog requires the displayed version and never silently upgrades a stale editor',async()=>{
+ const calls=[];
+ const client=createWebsiteClient({config,fetchImpl:async(url,options)=>{calls.push({url,options});return response({_id:id,name:'Changed university',__v:3});}});
+ await assert.rejects(client.editResource('universities',id,{city:'Old edit'}),{status:428});
+ assert.equal(calls.length,0);
+ await assert.rejects(client.editResource('universities',id,{city:'Old edit',expectedVersion:2}),{status:409});
+ assert.equal(calls.length,1);assert.equal(calls[0].options.method,'GET');
+ await assert.rejects(client.deleteResource('universities',id),{status:428});
+ assert.equal(calls.length,1);
+ await client.deleteResource('universities',id,{expectedVersion:2});
+ assert.equal(calls[1].options.method,'DELETE');
+ assert.deepEqual(JSON.parse(calls[1].options.body),{expectedVersion:2});
 });

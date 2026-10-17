@@ -94,6 +94,7 @@ export default function WebsiteOperations({ resource, record, writesEnabled, edi
     event.preventDefault(); setBusy(true); setError('');
     try {
       const body = { ...form };
+      if (kind==='content' && record._id && ['countries','universities','programs','studyFields'].includes(resource)) body.expectedVersion=record.__v ?? 0;
       for(const key of requiredCatalogFields[resource] || [])if(!String(body[key] || '').trim())throw new Error(`أدخل ${label[key]}.`);
       if(resource==='countries'){body.code=body.code.trim().toUpperCase();body.visaRequirements=(body.visaRequirements || []).filter(row=>row.docKey && row.label);}
       if(resource==='programs')body.fieldsOfStudy=[...new Set([body.fieldOfStudy,...(body.fieldsOfStudy || [])].filter(Boolean))];

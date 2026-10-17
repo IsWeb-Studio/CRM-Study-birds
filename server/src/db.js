@@ -1,3 +1,7 @@
+import {createAtomicDbAdapter} from './integrations/website/atomicDbAdapter.js';
+import backupGate from './integrations/website/twoWay/syncBackupGate.cjs';
+import {createHash} from 'node:crypto';
+import {isDeepStrictEqual} from 'node:util';
 import fs from 'node:fs/promises';
 import mutationQueue from './integrations/website/twoWay/safeMutationQueue.cjs';
 import path from 'node:path';
@@ -21,9 +25,21 @@ let dbCache;
 let dbCacheExpiresAt = 0;
 let dbCachePromise;
 const dbCacheTtlMs = Math.max(1_000, Number(process.env.DB_CACHE_TTL_MS || 300_000));
+const atomicEnabled=process.env.CRM_ATOMIC_STORAGE_ENABLED==='true';
+let atomicAdapterPromise,activeAtomicAdapter;
+async function atomicAdapter(){
+ if(!atomicAdapterPromise)atomicAdapterPromise=(async()=>{
+  await backupGate.assertBackups();
+  await getMongoCollection();const db=mongoClient.db(mongoDbName);
+  const hello=await db.command({hello:1});if(!hello.setName && hello.msg!=='isdbgrid')throw new Error('Atomic storage requires a replica set or sharded cluster');
+  activeAtomicAdapter=createAtomicDbAdapter({db,client:mongoClient,id:mongoDocumentId,stateCollection:mongoCollectionName,readModels:[...readModelCollections],createEmpty:createEmptyDb,validate:isValidAppDbShape,normalizeCatalog:normalizeEducationCatalog,importCatalog:readUnifiedCatalogImport});return activeAtomicAdapter;
+ })().catch(error=>{atomicAdapterPromise=null;throw error;});
+ return atomicAdapterPromise;
+}
 const emptyEducationCatalog = () => ({ universities: [], programs: [], scholarships: [] });
 let educationCatalogCache;
 let educationCatalogSnapshot = '';
+const catalogueDigest=value=>createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const readModelCollections = new Set([
   'leads',
   'students',
@@ -153,13 +169,14 @@ async function getEducationCatalog(legacyCatalog) {
   }
 
   educationCatalogCache = normalizeEducationCatalog(catalog);
-  educationCatalogSnapshot = JSON.stringify(educationCatalogCache);
+  educationCatalogSnapshot = catalogueDigest(educationCatalogCache);
   return educationCatalogCache;
 }
 
 async function syncEducationCatalog(catalog) {
+  if(catalog === educationCatalogCache)return;
   const normalized = normalizeEducationCatalog(catalog);
-  const snapshot = JSON.stringify(normalized);
+  const snapshot = catalogueDigest(normalized);
   if (snapshot === educationCatalogSnapshot) return;
 
   await (await getMongoDbHandle()).collection('education_catalog').updateOne(
@@ -189,7 +206,7 @@ async function syncReadModel(db, name, rows) {
     await collection.deleteMany({});
   }
 
-  readModelSnapshots.set(name, JSON.stringify(normalizedRows));
+  readModelSnapshots.set(name, normalizedRows);
 }
 
 async function ensureReadModels(data) {
@@ -224,14 +241,14 @@ async function syncChangedReadModels(data) {
   const db = await getMongoDbHandle();
   for (const name of readModelCollections) {
     const rows = Array.isArray(data[name]) ? data[name] : [];
-    const snapshot = JSON.stringify(rows);
-    if (snapshot !== readModelSnapshots.get(name)) {
+    if (rows !== readModelSnapshots.get(name) && !isDeepStrictEqual(rows, readModelSnapshots.get(name))) {
       await syncReadModel(db, name, rows);
-    }
+    } else readModelSnapshots.set(name, rows);
   }
 }
 
 export async function getReadModelCollection(name) {
+  if(atomicEnabled)return (await atomicAdapter()).readCollection(name);
   if (!readModelCollections.has(name)) throw new Error(`Unsupported read model: ${name}`);
   if (!readModelsReady) {
     const data = await readMongoDb();
@@ -306,21 +323,25 @@ async function writeMongoDb(data) {
 }
 
 export async function readDb() {
+  if(atomicEnabled)return (await atomicAdapter()).read();
   return readMongoDb();
 }
 
 export async function warmDbCache() {
-  await readMongoDb();
+  await readDb();
 }
 
-export async function writeDb(data) {
+export async function writeDb(data,options) {
+  if(atomicEnabled)return (await atomicAdapter()).write(data,options);
   return writeMongoDb(data);
 }
 
 export const mutateDb = mutationQueue.createMutationQueue({
-  read: readDb,
+  read: atomicEnabled?async()=>(await atomicAdapter()).fresh():readDb,
+  needsWrite: atomicEnabled?base=>activeAtomicAdapter?.needsWrite(base):()=>false,
   write: writeDb,
-  onFailure: () => {
+  onFailure: async () => {
+    if(atomicEnabled && atomicAdapterPromise)(await atomicAdapterPromise.catch(()=>null))?.invalidate();
     dbCache = undefined;
     dbCacheExpiresAt = 0;
     dbCachePromise = undefined;

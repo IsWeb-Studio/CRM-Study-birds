@@ -1,3 +1,5 @@
+import mutationSnapshots from './twoWay/safeMutationQueue.cjs';
+const {cloneSnapshot}=mutationSnapshots;
 import {canReadLocal,localStates,localSummary,markLocalRead,localDetail,localUnread} from './localReadState.js';
 import { createHmac } from 'node:crypto';
 import {conversationKey,updateConversationWorkspace} from './conversationWorkspace.js';
@@ -67,6 +69,7 @@ export const websiteResources = {
 
 
 for(const key of ['universities','programs','scholarshipCatalog','countries','studyFields','testimonials','recognitions','exhibitions','pastEvents','contentServices','faqs','knowledge','applications','ourStory','upcomingEvent'])websiteResources[key].deletable=true;
+const revisionCatalog = new Set(['countries','universities','programs','studyFields']);
 const mediaUploads={universities:{path:'/universities/upload-images',field:'files'},countries:{path:'/admin/countries/upload-image'},studyFields:{path:'/admin/study-fields/upload-image'},testimonials:{path:'/admin/testimonials/upload-avatar'},recognitions:{path:'/admin/recognitions/upload-image'},contentServices:{path:'/admin/our-services/upload-image'},ourStory:{path:'/admin/our-story/upload-image'},exhibitions:{path:'/admin/exhibitions/upload-image'},upcomingEvent:{path:'/admin/upcoming-event/upload-image'},pastEvents:{path:'/admin/past-events/upload-media'}};
 
 const fail = (message, status = 400) => Object.assign(new Error(message), { status });
@@ -226,16 +229,18 @@ export function createWebsiteClient({ config = () => websiteConfig(), fetchImpl 
   }
   async function editResource(key, id, payload, companyId) {
     const def = websiteResources[key];
-    const fields = id ? def?.editFields : def?.createFields || def?.editFields;
+    const fields = id ? [...(def?.editFields || []), ...(revisionCatalog.has(key) ? ['expectedVersion'] : [])] : def?.createFields || def?.editFields;
     if (!fields?.length) throw fail('هذا القسم لا يدعم هذا الإجراء.');
     if (id && !(def.singleton && id === 'singleton')) assertId(id);
     if (def.singleton && id !== 'singleton') throw fail('هذا القسم يدعم تعديل السجل الحالي فقط.');
     if (!payload || typeof payload !== 'object' || Array.isArray(payload) || !Object.keys(payload).length || Object.keys(payload).some(field => !fields.includes(field))) throw fail('حقول المحتوى غير مسموحة.');
+    if (id && revisionCatalog.has(key) && (!Number.isSafeInteger(payload.expectedVersion) || payload.expectedVersion < 0)) throw fail('حدّث السجل وافتحه مجددًا قبل التعديل.',428);
     let body = { ...payload };
     if (id && !def.account) {
       // Some website controllers rebuild the whole entity. Preserve fields outside this editor.
       const existing = def.singleton ? (await request(def.path) || {}) : def.detail ? await detail(key, id) : (await resource(key)).rows.find(row => row._id === id);
       if (!existing) throw fail('السجل غير موجود.', 404);
+      if (revisionCatalog.has(key) && (existing.__v ?? 0) !== payload.expectedVersion) throw fail('تغير السجل؛ حدّث البيانات وراجعها قبل الحفظ.',409);
       body = { ...existing, ...payload };
       for (const field of ['_id', '__v', 'createdAt', 'updatedAt', 'slug', 'offeredAt', 'relatedPrograms','sourceId','__new']) delete body[field];
       if (body.country && typeof body.country === 'object') body.country = body.country._id;
@@ -256,11 +261,12 @@ export function createWebsiteClient({ config = () => websiteConfig(), fetchImpl 
     cachedCatalog = null; cacheUntil = 0;
     return result;
   }
-  async function deleteResource(key,id) {
+  async function deleteResource(key,id,payload={}) {
     assertId(id);
     if (!websiteResources[key]?.deletable) throw fail('حذف هذا النوع غير مدعوم.',400);
     const def=websiteResources[key];
-    const result = await request(`${def.deletePath || def.path}/${id}`,{method:'DELETE'});
+    if (revisionCatalog.has(key) && (!Number.isSafeInteger(payload.expectedVersion) || payload.expectedVersion < 0)) throw fail('حدّث القائمة قبل الحذف.',428);
+    const result = await request(`${def.deletePath || def.path}/${id}`,{method:'DELETE',...(revisionCatalog.has(key)?{body:{expectedVersion:payload.expectedVersion}}:{})});
     cachedCatalog=null;cacheUntil=0;return result;
   }
   async function uploadResource(key,id,file) {
@@ -444,7 +450,7 @@ export function mountWebsiteRoutes(app, { allowModule, allowAction, client, read
   app.post('/api/integrations/website/service-files/:id/:documentId',sectionAccess('services'),wrap(async(req,res)=>{
     assertId(req.params.id);assertId(req.params.documentId);res.set('Cache-Control','no-store');res.json(await client.request(`/crm/service-requests/${req.params.id}/documents/${req.params.documentId}/access`,{method:'POST'}));
   }));
-  app.post('/api/integrations/website/content/:resource/:id/delete',sectionAccess(req=>req.params.resource),writeAccess,wrap(async(req,res)=>{const result=await remoteWrite(req,'content-delete',()=>client.deleteResource(req.params.resource,req.params.id));if(req.params.resource==='applications')await mutateDb(db=>{db.websiteDeletedRecords ||= [];const rows=(db.applications || []).filter(row=>row.companyId===req.user.companyId && row.websiteSource?.id===req.params.id);for(const row of rows)db.websiteDeletedRecords.push({...structuredClone(row),deletedAt:new Date().toISOString(),deletedBy:req.user.sub});db.applications=(db.applications || []).filter(row=>!rows.includes(row));});res.json(result);}));
+  app.post('/api/integrations/website/content/:resource/:id/delete',sectionAccess(req=>req.params.resource),writeAccess,wrap(async(req,res)=>{const result=await remoteWrite(req,'content-delete',()=>client.deleteResource(req.params.resource,req.params.id,req.body));if(req.params.resource==='applications')await mutateDb(db=>{db.websiteDeletedRecords ||= [];const rows=(db.applications || []).filter(row=>row.companyId===req.user.companyId && row.websiteSource?.id===req.params.id);for(const row of rows)db.websiteDeletedRecords.push({...cloneSnapshot(row),deletedAt:new Date().toISOString(),deletedBy:req.user.sub});db.applications=(db.applications || []).filter(row=>!rows.includes(row));});res.json(result);}));
   app.get('/api/integrations/website/requests/:resource/:id', sectionAccess(req => req.params.resource), wrap(async (req, res) => {const row=await client.detail(req.params.resource, req.params.id);try{const [annotated]=await attachReadState(req.params.resource,[row]);res.json(annotated);}catch{res.json(row);}}));
   app.post('/api/integrations/website/requests/:resource/:id/:action', sectionAccess(req => req.params.resource), writeAccess, wrap(async (req, res) => {
     if (process.env.STUDY_BIRDS_ALLOW_WRITES !== 'true') throw fail('تعديل بيانات الموقع غير مفعّل على خادم CRM.', 403);

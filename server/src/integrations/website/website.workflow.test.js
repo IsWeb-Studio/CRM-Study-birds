@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { observeWebsiteRows, linkWebsiteRecord, createWebsiteWorkflow, mountWebsiteEmail, startWebsitePolling } from './website.workflow.js';
+import { observeWebsiteRows, linkWebsiteRecord, createWebsiteWorkflow, mountWebsiteEmail, startWebsitePolling, pollingConfiguration } from './website.workflow.js';
 const id = digit => digit.repeat(24);
 const db = () => ({ companies: [{ id: 'c1' }, { id: 'c2' }], users: [{ id: 'u1', companyId: 'c1', name: 'Advisor' }, { id: 'u2', companyId: 'c2' }], students: [{ id: 'independent', companyId: 'c1', name: 'Same Name' }], applications: [], invoices: [], leads: [], websiteSyncSettings: { c1: { recipients: ['u1', 'u2'], autoAssign: true } } });
 const row = value => ({ _id: id(value), student: { _id: id('f'), name: 'Same Name' }, program: { title: 'Medicine' }, university: { name: 'University' }, status: 'submitted' });
@@ -82,4 +82,21 @@ test('mail receiver rejects unauthenticated messages and deduplicates provider m
   const response = { status: () => response, json: data => results.push(data) };
   await route(request, response, e => { throw e; }); await route(request, response, e => { throw e; });
   assert.equal(state.websiteContactMail.length, 1); assert.equal(results[1].duplicate, true);
+});
+
+
+test('invalid polling company is diagnosed without selecting or moving another company',()=>{
+ const state=db(),before=JSON.stringify(state);
+ const config=pollingConfiguration(state,'c1',{STUDY_BIRDS_ENABLED:'true',STUDY_BIRDS_SYNC_ENABLED:'true',STUDY_BIRDS_COMPANY_ID:'missing'});
+ assert.equal(config.companyExists,false);assert.equal(config.currentCompanyId,'c1');assert.equal(config.configuredCompanyId,'missing');assert.equal(JSON.stringify(state),before);
+});
+test('polling backs off repeated failures and never overlaps runs',async()=>{
+ const pending=[],delays=[],logs=[];let calls=0,fail=true;
+ const stop=startWebsitePolling({synchronize:async company=>{assert.equal(company,'c1');calls++;if(fail)throw Object.assign(new Error('Wrong company'),{code:'WEBSITE_COMPANY_NOT_FOUND'});}},
+ {STUDY_BIRDS_ENABLED:'true',STUDY_BIRDS_SYNC_ENABLED:'true',STUDY_BIRDS_COMPANY_ID:' c1 ',STUDY_BIRDS_SYNC_INTERVAL_MS:60000},
+ {schedule:(fn,delay)=>{pending.push(fn);delays.push(delay);return 1;},cancel:()=>{},log:(...args)=>logs.push(args)});
+ assert.deepEqual(delays,[60000]);await pending.shift()();await pending.shift()();
+ assert.deepEqual(delays,[60000,120000,240000]);assert.equal(logs.length,1);assert.equal(calls,2);
+ fail=false;await pending.shift()();assert.equal(delays.at(-1),60000);
+ stop();const count=delays.length;await pending.shift()();assert.equal(delays.length,count);
 });

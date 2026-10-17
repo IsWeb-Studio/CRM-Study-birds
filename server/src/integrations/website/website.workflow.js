@@ -98,7 +98,7 @@ export function createWebsiteWorkflow({ client, readDb, mutateDb }) {
     if (flights.has(companyId)) return flights.get(companyId);
     const flight = (async () => {
       const db = await readDb();
-      if (!db.companies?.some(company => company.id === companyId)) throw fail('شركة غير موجودة.');
+      if (!db.companies?.some(company => company.id === companyId)) throw Object.assign(fail('معرّف شركة المزامنة غير موجود في قاعدة CRM الحالية. راجع إعداد STUDY_BIRDS_COMPANY_ID على خادم CRM.',409),{code:'WEBSITE_COMPANY_NOT_FOUND'});
       const policy = db.websiteSyncSettings?.[companyId] || {};
       const resources = Array.isArray(policy.resources) ? policy.resources : requestTypes;
       const results = [];
@@ -138,7 +138,7 @@ export function mountWebsiteWorkflow(app, { allowModule, allowRoles, client, rea
   const wrap = handler => async (req, res, next) => { try { await handler(req, res); } catch (error) { next(error); } };
   app.get('/api/integrations/website/workflow', access, wrap(async (req, res) => {
     const db = await readDb(), companyId = req.user.companyId;
-    res.json({ settings: db.websiteSyncSettings?.[companyId] || { autoAssign: false, resources: requestTypes, recipients: [], identities: {} }, inbox: (db.websiteInbox || []).filter(row => row.companyId === companyId), links: (db.websiteRecordLinks || []).filter(row => row.companyId === companyId), users: (db.users || []).filter(row => row.companyId === companyId && row.isActive !== false).map(({ id, name, role }) => ({ id, name, role })), lastSync: db.websiteSyncResults?.[companyId] || null });
+    res.json({ polling: pollingConfiguration(db,companyId), settings: db.websiteSyncSettings?.[companyId] || { autoAssign: false, resources: requestTypes, recipients: [], identities: {} }, inbox: (db.websiteInbox || []).filter(row => row.companyId === companyId), links: (db.websiteRecordLinks || []).filter(row => row.companyId === companyId), users: (db.users || []).filter(row => row.companyId === companyId && row.isActive !== false).map(({ id, name, role }) => ({ id, name, role })), lastSync: db.websiteSyncResults?.[companyId] || null });
   }));
   app.get('/api/integrations/website/mail', access, wrap(async (req, res) => res.json((await readDb()).websiteContactMail?.filter(row => row.companyId === req.user.companyId).slice(-100).reverse() || [])));
   app.post('/api/integrations/website/capabilities', access, manage, wrap(async (_req, res) => {
@@ -173,12 +173,23 @@ export function mountWebsiteWorkflow(app, { allowModule, allowRoles, client, rea
   return workflow;
 }
 
-export function startWebsitePolling(workflow, env = process.env) {
-  if (env.STUDY_BIRDS_SYNC_ENABLED !== 'true' || !env.STUDY_BIRDS_COMPANY_ID) return () => {};
-  const interval = Math.max(60000, Number(env.STUDY_BIRDS_SYNC_INTERVAL_MS) || 120000);
-  const timer = setInterval(() => { workflow.synchronize(env.STUDY_BIRDS_COMPANY_ID).catch(error => console.error('Website polling failed:', error.message)); }, interval);
-  timer.unref?.();
-  return () => clearInterval(timer);
+export function pollingConfiguration(db,currentCompanyId,env=process.env){
+ const configuredCompanyId=String(env.STUDY_BIRDS_COMPANY_ID || '').trim();
+ const companyExists=Boolean(configuredCompanyId && db.companies?.some(row=>row.id===configuredCompanyId));
+ return {enabled:env.STUDY_BIRDS_SYNC_ENABLED==='true' && env.STUDY_BIRDS_ENABLED==='true',configuredCompanyId,currentCompanyId,companyExists,matchesCurrentCompany:configuredCompanyId===currentCompanyId};
+}
+export function startWebsitePolling(workflow, env = process.env, {schedule=setTimeout,cancel=clearTimeout,log=console.error}={}) {
+ if(env.STUDY_BIRDS_ENABLED!=='true' || env.STUDY_BIRDS_SYNC_ENABLED!=='true' || !String(env.STUDY_BIRDS_COMPANY_ID || '').trim())return ()=>{};
+ const interval=Math.max(60000,Number(env.STUDY_BIRDS_SYNC_INTERVAL_MS) || 120000);
+ let stopped=false,timer,lastError='',lastReported=0,failures=0;
+ const run=async()=>{
+  if(stopped)return;
+  try{await workflow.synchronize(env.STUDY_BIRDS_COMPANY_ID.trim());failures=0;lastError='';}
+  catch(error){failures++;const signature=error.code || error.message;if(signature!==lastError || Date.now()-lastReported>900000){log('Website polling paused/retrying:',error.message);lastReported=Date.now();lastError=signature;}}
+  finally{if(!stopped){timer=schedule(run,Math.min(900000,interval * 2 ** Math.min(failures,3)));timer?.unref?.();}}
+ };
+ timer=schedule(run,interval);timer?.unref?.();
+ return ()=>{stopped=true;cancel(timer);};
 }
 
 // Signed inbound email relay for a mailbox integration (e.g. a mail rule/provider webhook).

@@ -1,3 +1,5 @@
+import mutationSnapshots from './twoWay/safeMutationQueue.cjs';
+const {cloneSnapshot}=mutationSnapshots;
 import {createHash,randomUUID} from 'node:crypto';
 import {websiteApplicationStatuses} from './applicationStatuses.js';
 const fail = (message,status=400) => Object.assign(new Error(message),{status});
@@ -36,7 +38,7 @@ export async function provisionAccount(client,{companyId,kind,payload},env=proce
 export function archiveLegacyCatalog(db) {
   if (db.websiteCatalogArchive) return false;
   const original = db.educationCatalog || {};
-  db.websiteCatalogArchive = {id:randomUUID(),archivedAt:new Date().toISOString(),universities:structuredClone(original.universities || []),programs:structuredClone(original.programs || []),scholarships:structuredClone(original.scholarships || [])};
+  db.websiteCatalogArchive = {id:randomUUID(),archivedAt:new Date().toISOString(),universities:cloneSnapshot(original.universities || []),programs:cloneSnapshot(original.programs || []),scholarships:cloneSnapshot(original.scholarships || [])};
   return true;
 }
 export function replaceLegacyCatalog(db) {
